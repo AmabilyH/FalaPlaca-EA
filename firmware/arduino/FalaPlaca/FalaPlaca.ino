@@ -1,66 +1,103 @@
+// FalaPlaca - prancheta de CAA com 10 botões e DFPlayer Mini.
+// Botão n toca /01/00n.mp3 (ou .wav) do cartão MicroSD e acende o LED por 2 s.
+// Funciona no Arduino UNO (DFPlayer via SoftwareSerial) e no Mega (via Serial1).
+
 #include <DFRobotDFPlayerMini.h>
 
-#define moduloMP3 Serial1
+#if defined(HAVE_HWSERIAL1)
+  #define moduloMP3 Serial1            // Mega: TX1 = 18, RX1 = 19
+#else
+  #include <SoftwareSerial.h>
+  SoftwareSerial moduloMP3(10, 11);    // UNO: RX = 10 (TX do DFPlayer), TX = 11 (RX do DFPlayer via 1 kΩ)
+#endif
+
 DFRobotDFPlayerMini mp3;
 
-const int botao1 = 2;
-const int botao2 = 3;
+// Ordem física da placa (fileiras = blocos temáticos):
+//   Saúde:   1 dor          2 banheiro    3 água
+//   Emoções: 4 feliz        5 triste      6 medo
+//   Escola:  7 ajuda        8 não entendi
+//   Social:  9 olá         10 obrigado(a)
+const uint8_t PINOS_BOTOES[] = {2, 3, 4, 5, 6, 7, 8, 9, A0, A1};
+const uint8_t TOTAL_BOTOES = sizeof(PINOS_BOTOES) / sizeof(PINOS_BOTOES[0]);
 
-// estado estável confirmado (depois do debounce)
-int estadoBotao1 = HIGH;
-int estadoBotao2 = HIGH;
+const uint8_t PINO_LED = 13;               // também acende o LED da própria placa
+const uint8_t PASTA_AUDIOS = 1;            // pasta /01 do cartão
+const uint8_t VOLUME = 22;                 // 0 (mudo) a 30 (máximo)
+const unsigned long DEBOUNCE_MS = 50;      // tempo de estabilização da leitura
+const unsigned long LED_ACESO_MS = 2000;   // confirmação visual após cada acionamento
 
-// última leitura crua (pode estar "chiando")
-int ultimaLeitura1 = HIGH;
-int ultimaLeitura2 = HIGH;
+struct Botao {
+  uint8_t estado;            // estado estável confirmado (depois do debounce)
+  uint8_t ultimaLeitura;     // última leitura crua (pode estar "chiando")
+  unsigned long ultimaMudanca;
+};
 
-// instante da última vez que a leitura crua mudou
-unsigned long ultimaMudanca1 = 0;
-unsigned long ultimaMudanca2 = 0;
+Botao botoes[TOTAL_BOTOES];
+unsigned long ledAcesoDesde = 0;
+bool ledAceso = false;
 
-const unsigned long debounce = 50; // 50ms de estabilização
+void tocarFrase(uint8_t numero) {
+  mp3.playFolder(PASTA_AUDIOS, numero);
+  digitalWrite(PINO_LED, HIGH);
+  ledAceso = true;
+  ledAcesoDesde = millis();
+  Serial.print(F("Tocando botao "));
+  Serial.println(numero);
+}
+
+// Sem áudio a placa não tem utilidade: pisca o LED rápido para sinalizar o erro.
+void sinalizarErroFatal() {
+  Serial.println(F("Erro ao iniciar o modulo MP3. Verifique fios e cartao."));
+  while (true) {
+    digitalWrite(PINO_LED, !digitalRead(PINO_LED));
+    delay(150);
+  }
+}
 
 void setup() {
   Serial.begin(9600);
   moduloMP3.begin(9600);
 
-  pinMode(botao1, INPUT_PULLUP);
-  pinMode(botao2, INPUT_PULLUP);
-
-  if (!mp3.begin(moduloMP3)) {
-    Serial.println("Erro ao iniciar o modulo MP3.");
-    while (true);
+  pinMode(PINO_LED, OUTPUT);
+  for (uint8_t i = 0; i < TOTAL_BOTOES; i++) {
+    pinMode(PINOS_BOTOES[i], INPUT_PULLUP);   // botão ligado entre o pino e o GND
+    botoes[i] = {HIGH, HIGH, 0};
   }
 
-  mp3.volume(20);
-  Serial.println("Modulo MP3 pronto!");
+  // isACK = false: necessário para módulos clone que não respondem ACK
+  // corretamente, o que travava o begin() esperando confirmação que nunca chegava.
+  if (!mp3.begin(moduloMP3, /*isACK=*/false, /*doReset=*/true)) {
+    sinalizarErroFatal();
+  }
+
+  mp3.volume(VOLUME);
+  Serial.println(F("FalaPlaca pronta!"));
 }
 
 void loop() {
   unsigned long agora = millis();
 
-  // ---- Botão 1 ----
-  int leitura1 = digitalRead(botao1);
-  if (leitura1 != ultimaLeitura1) {
-    ultimaMudanca1 = agora;      // leitura mudou: reinicia o timer de estabilização
-    ultimaLeitura1 = leitura1;
-  }
-  // só aceita a leitura depois que ela ficou estável por 'debounce' ms
-  if ((agora - ultimaMudanca1) > debounce && leitura1 != estadoBotao1) {
-    estadoBotao1 = leitura1;     // estado mudou DE VERDADE
-    mp3.playFolder(1, 1);        // dispara nos dois sentidos (travar E destravar)
-    Serial.println("Tocando: oi");
+  for (uint8_t i = 0; i < TOTAL_BOTOES; i++) {
+    Botao &b = botoes[i];
+    uint8_t leitura = digitalRead(PINOS_BOTOES[i]);
+
+    if (leitura != b.ultimaLeitura) {
+      b.ultimaMudanca = agora;   // leitura mudou: reinicia o timer de estabilização
+      b.ultimaLeitura = leitura;
+    }
+
+    // só aceita a leitura depois que ela ficou estável por DEBOUNCE_MS
+    if ((agora - b.ultimaMudanca) > DEBOUNCE_MS && leitura != b.estado) {
+      b.estado = leitura;
+      if (b.estado == LOW) {     // dispara só ao pressionar, não ao soltar
+        tocarFrase(i + 1);
+      }
+    }
   }
 
-  // ---- Botão 2 ----
-  int leitura2 = digitalRead(botao2);
-  if (leitura2 != ultimaLeitura2) {
-    ultimaMudanca2 = agora;
-    ultimaLeitura2 = leitura2;
-  }
-  if ((agora - ultimaMudanca2) > debounce && leitura2 != estadoBotao2) {
-    estadoBotao2 = leitura2;
-    mp3.playFolder(1, 2);
-    Serial.println("Tocando: tchau");
+  if (ledAceso && (agora - ledAcesoDesde) >= LED_ACESO_MS) {
+    digitalWrite(PINO_LED, LOW);
+    ledAceso = false;
   }
 }

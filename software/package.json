@@ -1,0 +1,10 @@
+{
+  "name": "falaplaca-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Protótipo PWA para configurar os botões da FalaPlaca por Bluetooth ou cartão SD.",
+  "scripts": {
+    "start": "node servidor.mjs"
+  }
+}

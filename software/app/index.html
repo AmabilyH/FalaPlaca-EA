@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#5b4bdb">
+  <meta name="description" content="Configure as frases, pictogramas e áudios de cada botão da FalaPlaca.">
+  <title>FalaPlaca</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+
+  <!-- ============ Tela de entrada ============ -->
+  <section id="tela-entrada" class="tela entrada" hidden>
+    <div class="entrada-cartao">
+      <div class="marca">
+        <img src="icons/icon.svg" alt="" width="44" height="44">
+        <span>FalaPlaca</span>
+      </div>
+      <h1>Monte a prancheta de comunicação da sua turma</h1>
+      <p class="entrada-sub">Escolha a frase, o pictograma e a voz de cada botão e envie para a placa por Bluetooth ou cartão SD.</p>
+
+      <form id="form-entrada" class="formulario" novalidate>
+        <label class="campo">
+          <span>Seu nome</span>
+          <input name="nome" autocomplete="name" placeholder="Ex.: Profa. Ana">
+        </label>
+        <label class="campo">
+          <span>E-mail</span>
+          <input name="email" type="email" autocomplete="email" placeholder="voce@escola.edu.br">
+        </label>
+        <label class="campo">
+          <span>Senha</span>
+          <input name="senha" type="password" autocomplete="current-password" placeholder="••••••••">
+        </label>
+        <button class="btn primario grande" type="submit">Entrar</button>
+      </form>
+      <p class="aviso-prototipo">Protótipo: o login ainda não valida usuário e senha.</p>
+    </div>
+
+    <div class="entrada-ilustracao" aria-hidden="true">
+      <div class="mini-placa">
+        <div class="mini-topo"><span class="mini-falante"></span><span class="mini-led"></span></div>
+        <div class="mini-grade">
+          <span style="--cor:#e5484d">🤕</span><span style="--cor:#e5484d">🚽</span><span style="--cor:#e5484d">💧</span>
+          <span style="--cor:#e09a00">😊</span><span style="--cor:#e09a00">😢</span><span style="--cor:#e09a00">😨</span>
+          <span style="--cor:#3e7bfa">🙋</span><i></i><span style="--cor:#3e7bfa">❓</span>
+          <span style="--cor:#1f9d63">👋</span><i></i><span style="--cor:#1f9d63">🙏</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Painel ============ -->
+  <section id="tela-painel" class="tela painel" hidden>
+    <header class="topo">
+      <div class="marca pequena">
+        <img src="icons/icon.svg" alt="" width="32" height="32">
+        <span>FalaPlaca</span>
+      </div>
+      <button id="chip-conexao" class="chip-conexao" type="button" data-estado="desconectada">
+        <span class="ponto"></span><span class="chip-texto">Placa desconectada</span>
+      </button>
+      <div class="topo-direita">
+        <button id="btn-instalar" class="btn fantasma" type="button" data-icone="instalar" hidden><span>Instalar app</span></button>
+        <span id="saudacao" class="saudacao"></span>
+        <button id="btn-sair" class="btn fantasma icone-so" type="button" data-icone="sair" aria-label="Sair"></button>
+      </div>
+    </header>
+
+    <main class="conteudo">
+      <section class="mapa" aria-labelledby="titulo-mapa">
+        <div class="mapa-cabecalho">
+          <div>
+            <h1 id="titulo-mapa">Mapa da placa</h1>
+            <p class="mapa-sub">Toque em um botão para escolher a frase e gravar a voz.</p>
+          </div>
+          <div class="progresso" aria-live="polite">
+            <span id="progresso-texto">0 de 10 prontos</span>
+            <div class="barra"><span id="progresso-barra"></span></div>
+          </div>
+        </div>
+
+        <div class="placa" id="placa">
+          <div class="placa-topo">
+            <span class="alto-falante" aria-hidden="true"></span>
+            <span class="placa-nome">FalaPlaca</span>
+            <span class="led" id="led" title="LED de confirmação"></span>
+          </div>
+          <div class="placa-colunas" aria-hidden="true"><span></span><span>A</span><span>B</span><span>C</span></div>
+          <div id="fileiras" class="fileiras"></div>
+          <div class="placa-rodape" aria-hidden="true">IFPE · IFMaker</div>
+        </div>
+
+        <ul class="legenda">
+          <li><span class="legenda-marca ok"></span>Com áudio</li>
+          <li><span class="legenda-marca falta"></span>Falta gravar</li>
+          <li><span class="legenda-marca selecionado"></span>Selecionado</li>
+          <li><span class="legenda-marca vazio"></span>Sem botão</li>
+        </ul>
+
+        <div class="acoes-placa">
+          <button id="btn-abrir-bluetooth" class="btn primario" type="button" data-icone="bluetooth"><span>Enviar por Bluetooth</span></button>
+          <button id="btn-abrir-cartao" class="btn secundario" type="button" data-icone="cartao"><span>Salvar no cartão SD</span></button>
+          <button id="btn-imprimir" class="btn fantasma" type="button" data-icone="imprimir"><span>Imprimir etiquetas</span></button>
+        </div>
+      </section>
+
+      <div id="fundo-editor" class="fundo-editor" hidden></div>
+
+      <aside id="editor" class="editor" aria-label="Configuração do botão">
+        <div id="editor-vazio" class="editor-vazio">
+          <span class="editor-vazio-ico" data-icone="placa"></span>
+          <h2>Escolha um botão</h2>
+          <p>Toque em qualquer botão do mapa para definir a frase, o pictograma e o áudio.</p>
+        </div>
+
+        <div id="editor-conteudo" class="editor-conteudo" hidden>
+          <div class="alca" aria-hidden="true"></div>
+          <header class="editor-topo">
+            <button id="btn-anterior" class="btn fantasma icone-so" type="button" data-icone="anterior" aria-label="Botão anterior"></button>
+            <div class="editor-titulo">
+              <span id="editor-assento" class="assento-tag">1A</span>
+              <div>
+                <h2 id="editor-titulo">Botão 1</h2>
+                <p id="editor-arquivo" class="editor-arquivo"></p>
+              </div>
+            </div>
+            <button id="btn-proximo" class="btn fantasma icone-so" type="button" data-icone="proximo" aria-label="Próximo botão"></button>
+            <button id="btn-fechar-editor" class="btn fantasma icone-so so-celular" type="button" data-icone="fechar" aria-label="Fechar"></button>
+          </header>
+
+          <div class="editor-previa">
+            <span class="previa-botao"><span id="previa-icone" class="previa-icone"></span></span>
+            <span id="previa-texto" class="previa-texto"></span>
+          </div>
+
+          <label class="campo">
+            <span>Frase falada <small id="contador-texto"></small></span>
+            <input id="campo-texto" maxlength="40" autocomplete="off" placeholder="Ex.: Preciso de água.">
+          </label>
+
+          <section class="campo bloco-audio" aria-labelledby="titulo-audio">
+            <div class="bloco-audio-topo">
+              <h3 id="titulo-audio">Voz do botão</h3>
+              <span id="audio-info" class="audio-info"></span>
+            </div>
+            <canvas id="onda" class="onda" height="56"></canvas>
+            <div class="acoes-audio">
+              <button id="btn-gravar" class="btn gravar" type="button">
+                <span class="gravar-ponto"></span><span class="gravar-texto">Gravar</span>
+              </button>
+              <label class="btn secundario" data-icone="enviar">
+                <span>Arquivo</span>
+                <input id="entrada-arquivo" type="file" accept="audio/*" hidden>
+              </label>
+              <button id="btn-ouvir" class="btn secundario" type="button" data-icone="tocar"><span>Ouvir</span></button>
+              <button id="btn-remover-audio" class="btn fantasma icone-so" type="button" data-icone="lixeira" aria-label="Remover áudio"></button>
+            </div>
+            <div class="acoes-audio secundarias">
+              <button id="btn-voz" class="btn link" type="button" data-icone="voz"><span>Prévia com voz sintética</span></button>
+              <button id="btn-tocar-placa" class="btn link" type="button" data-icone="volume" hidden><span>Tocar na placa</span></button>
+            </div>
+            <p class="dica">Fale perto do microfone, em lugar silencioso. Cortamos o silêncio do início e do fim para a placa responder mais rápido.</p>
+          </section>
+
+          <fieldset class="campo">
+            <legend>Pictograma</legend>
+            <div id="grade-icones" class="grade-icones" role="listbox" aria-label="Pictogramas"></div>
+          </fieldset>
+        </div>
+      </aside>
+    </main>
+  </section>
+
+  <!-- ============ Envio para a placa ============ -->
+  <dialog id="dlg-envio" class="folha">
+    <header class="folha-topo">
+      <h2>Enviar para a placa</h2>
+      <button class="btn fantasma icone-so" type="button" data-fechar data-icone="fechar" aria-label="Fechar"></button>
+    </header>
+
+    <div class="abas" role="tablist">
+      <button role="tab" type="button" data-aba="bluetooth" data-icone="bluetooth"><span>Bluetooth</span></button>
+      <button role="tab" type="button" data-aba="cartao" data-icone="cartao"><span>Cartão SD</span></button>
+    </div>
+
+    <div class="aba" data-painel="bluetooth" role="tabpanel">
+      <div id="bt-desconectado">
+        <p>Grava frases e áudios direto na memória da FalaPlaca, <strong>sem cartão</strong>. Ligue a placa e mantenha-a perto do aparelho.</p>
+        <div class="pilha">
+          <button id="bt-conectar" class="btn primario grande" type="button" data-icone="bluetooth"><span>Procurar FalaPlaca</span></button>
+          <button id="bt-demo" class="btn secundario" type="button"><span>Testar com placa de demonstração</span></button>
+        </div>
+        <p id="bt-suporte" class="dica"></p>
+      </div>
+
+      <div id="bt-conectado" hidden>
+        <div class="dispositivo">
+          <span class="dispositivo-ico" data-icone="placa"></span>
+          <div>
+            <strong id="bt-nome">FalaPlaca</strong>
+            <span id="bt-detalhe" class="dica"></span>
+          </div>
+          <button id="bt-desconectar" class="btn fantasma" type="button">Desconectar</button>
+        </div>
+        <label class="campo">
+          <span>Volume da placa <small id="volume-valor"></small></span>
+          <input id="campo-volume" type="range" min="0" max="30" step="1">
+        </label>
+        <button id="bt-enviar" class="btn primario grande" type="button" data-icone="enviar"><span>Enviar os 10 botões</span></button>
+      </div>
+    </div>
+
+    <div class="aba" data-painel="cartao" role="tabpanel" hidden>
+      <ol class="passos">
+        <li>Coloque o cartão MicroSD da FalaPlaca no computador.</li>
+        <li id="passo-gravar">Clique em <strong>Gravar no cartão</strong> e escolha a unidade do cartão (ou a pasta <code>01</code> dentro dele).</li>
+        <li>Devolva o cartão ao módulo DFPlayer e ligue a placa.</li>
+      </ol>
+      <div class="pilha">
+        <button id="sd-gravar" class="btn primario grande" type="button" data-icone="cartao"><span>Gravar no cartão</span></button>
+        <button id="sd-zip" class="btn secundario" type="button" data-icone="baixar"><span>Baixar arquivos (.zip)</span></button>
+      </div>
+      <p class="dica">No .zip, extraia a pasta <code>01</code> na raiz do cartão. O volume do cartão SD é definido no firmware.</p>
+    </div>
+
+    <ul id="lista-envio" class="lista-envio" aria-live="polite"></ul>
+  </dialog>
+
+  <div id="avisos" class="avisos" aria-live="assertive"></div>
+</body>
+</html>
