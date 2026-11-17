@@ -4,6 +4,7 @@ import { prepararAudio, Gravador, GRAVACAO_MAXIMA_S } from './audio.js';
 import { arquivosDoCartao, podeGravarDireto, gravarNoCartao, baixarZip } from './sdcard.js';
 import { bluetoothDisponivel, conectarBluetooth, DispositivoSimulado } from './bluetooth.js';
 import { icone, preencherIcones } from './icones.js';
+import { googleConfigurado, prepararBotaoGoogle, sairDoGoogle } from './google.js';
 
 const $ = (seletor, raiz = document) => raiz.querySelector(seletor);
 const $$ = (seletor, raiz = document) => [...raiz.querySelectorAll(seletor)];
@@ -57,27 +58,57 @@ function mostrarTela(id) {
   window.scrollTo(0, 0);
 }
 
+async function entrar(usuario) {
+  guardarUsuario(usuario);
+  await abrirPainel(usuario);
+}
+
 function configurarEntrada() {
   $('#form-entrada').addEventListener('submit', async (e) => {
     e.preventDefault();
     const dados = new FormData(e.target);
-    const usuario = {
+    await entrar({
       nome: String(dados.get('nome') || '').trim() || 'Professor(a)',
       email: String(dados.get('email') || '').trim(),
-    };
-    guardarUsuario(usuario);
-    await abrirPainel(usuario);
+      provedor: 'local',
+    });
   });
 
   $('#btn-sair').addEventListener('click', () => {
+    if (lerUsuario()?.provedor === 'google') sairDoGoogle();
     guardarUsuario(null);
     fecharEditor();
     mostrarTela('tela-entrada');
   });
+
+  configurarGoogle();
+}
+
+async function configurarGoogle() {
+  const indisponivel = (mensagem) => {
+    $('#google-entrar').hidden = true;
+    $('#google-indisponivel').hidden = false;
+    $('#google-aviso').textContent = mensagem;
+    $('#google-aviso').hidden = false;
+  };
+  if (!googleConfigurado()) {
+    indisponivel('Login com Google ainda não configurado: defina GOOGLE_CLIENT_ID em js/config.js.');
+    return;
+  }
+  try {
+    await prepararBotaoGoogle($('#google-entrar'), (usuario) => {
+      entrar(usuario).catch((err) => avisar(err.message, 'erro'));
+    });
+  } catch (err) {
+    indisponivel(err.message);
+  }
 }
 
 async function abrirPainel(usuario) {
   $('#saudacao').textContent = `Olá, ${usuario.nome.split(' ')[0]}`;
+  const avatar = $('#avatar');
+  avatar.hidden = !usuario.foto;
+  if (usuario.foto) avatar.src = usuario.foto;
   await carregarDados();
   renderPlaca();
   mostrarTela('tela-painel');

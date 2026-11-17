@@ -19,7 +19,9 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
 
 ## Funcionalidades
 
-- **Tela de entrada:** nome, e-mail e senha. **Ainda não há validação**; o nome é guardado só para a saudação.
+- **Tela de entrada:**
+  - **Continuar com o Google:** botão oficial do Google; o app usa o nome, o e-mail e a foto da conta (ver configuração abaixo);
+  - **Entrar com nome:** nome, e-mail e senha, **ainda sem validação**; o nome é guardado só para a saudação.
 - **Mapa da placa:** reprodução visual da prancheta de MDF, no estilo de um mapa de assentos de avião. As fileiras são os blocos temáticos (Saúde, Emoções, Escola, Social), as colunas são A–C e cada botão tem um código (1A, 3C…). A legenda mostra com áudio, falta gravar, selecionado e sem botão. O LED virtual acende por 2 s ao tocar uma frase, como na placa real.
 - **Editor do botão:** frase de até 40 caracteres, grade de pictogramas e seção de voz.
   - gravar pelo microfone (até 8 s), enviar um arquivo de áudio, ouvir e remover;
@@ -32,6 +34,22 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
 - **Enviar por Bluetooth:** grava frases, áudios e volume direto na memória da placa, **sem cartão** (ver requisito de hardware abaixo). Há uma **placa de demonstração** para testar o fluxo sem hardware.
 - **Imprimir etiquetas:** imprime só a placa, para recortar os pictogramas e as frases.
 - **Offline:** os dados ficam no próprio aparelho (IndexedDB), e o service worker guarda o app para abrir sem internet.
+
+## Login com Google: configuração
+
+O botão usa o [Google Identity Services](https://developers.google.com/identity/gsi/web) e precisa de um ID de cliente OAuth. Enquanto ele não for definido, o botão aparece desativado com um aviso e a entrada por nome continua funcionando.
+
+1. No [Google Cloud Console](https://console.cloud.google.com/), crie (ou escolha) um projeto.
+2. Em **APIs e serviços > Tela de permissão OAuth**, configure o app como **Externo**, com nome e e-mail de suporte. Em modo de teste, cadastre os e-mails que poderão entrar.
+3. Em **Credenciais > Criar credenciais > ID do cliente OAuth**, escolha **Aplicativo da Web**.
+4. Em **Origens JavaScript autorizadas**, adicione cada endereço onde o app roda: `http://localhost`, `http://localhost:5173` e o endereço HTTPS publicado (ex.: `https://<usuario>.github.io`). Não é preciso URI de redirecionamento.
+5. Copie o ID gerado (`…apps.googleusercontent.com`) para `GOOGLE_CLIENT_ID` em [app/js/config.js](app/js/config.js).
+
+O ID do cliente não é segredo e pode ficar no repositório.
+
+Para o login com Google funcionar no celular, o app precisa estar publicado em HTTPS. Endereços de rede local como `http://192.168…` não são aceitos pelo Google como origem.
+
+**Segurança:** como o protótipo não tem servidor, o token do Google é apenas lido no navegador e **não é verificado**. Isso basta para personalizar a interface, mas não protege dados. Quando houver backend (por exemplo, para sincronizar placas entre aparelhos), ele deve validar o token do Google antes de aceitar qualquer pedido.
 
 ## Bluetooth sem cartão: requisito de hardware
 
@@ -93,6 +111,8 @@ software/
       sdcard.js       gravação no cartão / .zip
       zip.js          gerador de ZIP e CRC-32
       bluetooth.js    Web Bluetooth + placa de demonstração
+      config.js       GOOGLE_CLIENT_ID
+      google.js       login com Google (Google Identity Services)
       icones.js       ícones SVG
 ```
 
@@ -100,7 +120,7 @@ Ao mudar a ordem ou a quantidade de botões, altere juntos `js/layout.js` e `PIN
 
 ## Limitações do protótipo
 
-- Login sem validação e sem contas: os dados ficam só no aparelho e no navegador em que foram criados.
+- O login (Google ou nome) só identifica quem está usando; não há contas no servidor. Os dados ficam só no aparelho e no navegador em que foram criados, mesmo entrando com a mesma conta Google em outro aparelho.
 - O caminho Bluetooth depende da placa ESP32, ainda não construída. Até lá, use a placa de demonstração.
 - Ainda não há importação de um cartão já gravado (o `falaplaca.json` é gerado para permitir isso no futuro).
 - A reprodução de WAV pelo DFPlayer deve ser confirmada no módulo usado; o DFPlayer também aceita MP3.
