@@ -79,7 +79,7 @@ O código está em [app/js/conexao.js](app/js/conexao.js) (busca), [app/js/bluet
 **Preparo do módulo Bluetooth (uma vez):**
 
 - **BLE (HM-10, AT-09…):** renomeie o módulo com o comando AT `AT+NAMEFalaPlaca` (alguns modelos pedem `AT+NAME=FalaPlaca`). Sem renomear, o app ainda encontra módulos com os nomes de fábrica `HMSoft`, `BT05`, `HC-08` e `JDY…`.
-- **HC-05:** pareie o módulo nas configurações de Bluetooth do computador (senha padrão `1234` ou `0000`); ele passa a aparecer como porta serial ("Serial padrão por link Bluetooth" no Windows). Para trocar o nome, use `AT+NAME=FalaPlaca` no modo AT do módulo.
+- **HC-05:** pareie o módulo nas configurações de Bluetooth do computador (senha padrão `1234` ou `0000`); ele passa a aparecer como porta serial ("Serial padrão por link Bluetooth" no Windows). Na lista de portas do Chrome, o HC-05 costuma aparecer como **"Dev B"** (nome do serviço serial do módulo). Os itens "Dispositivo Periférico Bluetooth" são outros aparelhos pareados. Para trocar o nome, use `AT+NAME=FalaPlaca` no modo AT do módulo.
 
 Os comandos AT podem ser enviados pelo Monitor Serial do Arduino IDE, com um sketch de passagem, ou por um adaptador USB-serial. O firmware fala com o módulo na `Serial2` do Mega, a 9600 baud, que é a velocidade padrão do HM-10 e do HC-05 (ligações em [docs/contexto](../docs/contexto/README.md#ligações-sketch-principal)). O UNO não tem uma segunda serial livre: nele, a conexão com o app é pelo cabo USB.
 

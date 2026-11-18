@@ -773,7 +773,7 @@ function configurarAjustes() {
 
 const DICAS_BUSCA = {
   bluetooth: 'Não apareceu? Toque em Procurar de novo: vamos procurar pelo Bluetooth (módulos BLE).',
-  serial: 'Não apareceu? Toque em Procurar de novo: vamos procurar placas ligadas por Bluetooth HC-05 ou cabo USB.',
+  serial: 'Não apareceu? Toque em Procurar de novo: vamos procurar placas ligadas por Bluetooth HC-05 (na lista, aparece como "Dev B" ou "HC-05") ou cabo USB.',
 };
 
 function dicaBusca(texto) {
