@@ -61,12 +61,13 @@ Os blocos temáticos agora são uma propriedade de cada botão, escolhida no app
 | DFPlayer TX → Arduino | D10 (SoftwareSerial) | RX1 (19) |
 | Arduino → DFPlayer RX | D11 com resistor de 1 kΩ em série | TX1 (18) com 1 kΩ |
 | LED de confirmação | D13 + resistor de 220 Ω (também acende o LED da placa) | igual |
+| DFPlayer BUSY → Arduino (opcional) | D12 (mede o tempo até o áudio começar, para o modo de teste) | igual |
 | Módulo Bluetooth TXD → Arduino | — (sem Bluetooth) | RX2 (17) |
 | Arduino → módulo Bluetooth RXD | — | TX2 (16) por divisor de tensão: 1 kΩ em série e 2 kΩ para o GND (o RXD do módulo é 3,3 V) |
 | Módulo Bluetooth VCC / GND | — | 5 V e GND (HM-10, AT-09 e HC-05 em placa com regulador) |
 | Cabo USB | conexão com o app | conexão com o app |
 
-O firmware escolhe as seriais na compilação: `Serial1` para o DFPlayer quando a placa a possui (`SoftwareSerial` caso contrário) e `Serial2` para o módulo Bluetooth quando ela existe. O mesmo sketch compila para UNO (6,2 KB de flash, conexão com o app só pelo cabo USB) e Mega (6,5 KB, cabo USB e Bluetooth).
+O firmware escolhe as seriais na compilação: `Serial1` para o DFPlayer quando a placa a possui (`SoftwareSerial` caso contrário) e `Serial2` para o módulo Bluetooth quando ela existe. O mesmo sketch compila para UNO (7,3 KB de flash, conexão com o app só pelo cabo USB) e Mega (7,6 KB, cabo USB e Bluetooth).
 
 O módulo Bluetooth pode ser **BLE** (HM-10, AT-09, HC-08, JDY-08) ou **clássico** (HC-05, HC-06): a ligação é a mesma. O BLE funciona no computador e no Android; o HC-05 funciona com certeza no computador, pareado como porta serial, e no Android depende da versão do Chrome. Preparo do módulo e comandos em [software/README.md](../../software/README.md#conexão-com-a-placa).
 
@@ -74,11 +75,13 @@ O módulo Bluetooth pode ser **BLE** (HM-10, AT-09, HC-08, JDY-08) ou **clássic
 
 - `firmware/arduino/FalaPlaca/FalaPlaca.ino` implementa os 10 botões:
   - pinos guardados em vetor e lidos num laço, com debounce de 50 ms;
-  - toca só ao pressionar, não ao soltar;
+  - toca só ao pressionar, não ao soltar, e uma vez por pressão;
+  - **ajustes para tremor** configuráveis pelo app e guardados na EEPROM: tempo mínimo de pressão (50–1500 ms; falhas de contato menores que 50 ms durante a pressão não reiniciam a contagem) e espera para repetir a mesma frase (0–10 s). O padrão (50 ms, sem espera) mantém o comportamento original;
   - LED de 2 s sem `delay()`;
   - `isACK=false` para módulos DFPlayer clone;
   - LED piscando rápido quando o DFPlayer não inicia;
-  - comandos do app pelo cabo USB (UNO e Mega) e, no Mega, pelo módulo Bluetooth na `Serial2`: recebe volume e frases (guardados na EEPROM), toca botões a pedido do app e avisa cada botão apertado.
+  - comandos do app pelo cabo USB (UNO e Mega) e, no Mega, pelo módulo Bluetooth na `Serial2`: recebe volume, ajustes e frases (guardados na EEPROM), toca botões a pedido do app e avisa cada botão apertado;
+  - **tempo de resposta medido**: com o BUSY do DFPlayer no D12, a placa envia ao app quanto tempo passou do início da pressão até o áudio começar (`AUDIO <n> <ms>`). Só mede quando o DFPlayer estava parado, para não confundir com um áudio anterior.
 - `examples/PrimeiroTesteFuncional` e `examples/SegundoTesteCompleto` ficam como registro dos protótipos anteriores: 2 botões, e 12 botões nos pinos 22–33 do Mega.
 - **Atenção:** um protótipo montado com o exemplo de 12 botões no Mega (pinos 22–33) precisa ser religado conforme a tabela acima.
 
@@ -87,9 +90,10 @@ O módulo Bluetooth pode ser **BLE** (HM-10, AT-09, HC-08, JDY-08) ou **clássic
 O app em [software/](../../software/README.md) é um PWA que roda no navegador e no celular. Nele, a professora:
 
 - vê a placa como no protótipo físico, organizada como um mapa de assentos (fileiras 1–2, colunas A–E);
-- define a frase e o pictograma de cada botão;
+- define a frase e o pictograma de cada botão, com **pictogramas ARASAAC** (acervo de referência em CAA, licença CC BY-NC-SA, guardados no aparelho para uso offline) ou emoji;
 - grava a voz pelo microfone ou envia um arquivo;
-- exporta para o cartão SD (gravação direta ou `.zip`) ou se conecta à placa.
+- exporta para o cartão SD (gravação direta ou `.zip`) ou se conecta à placa;
+- aplica o **modo de teste**, que segue o protocolo de validação do artigo: pede botões, registra botão certo, acerto do áudio e tempo de resposta, e gera a tabela por bloco e a planilha CSV.
 
 A conexão tem um único botão, **Procurar FalaPlaca**, que serve para módulo BLE, HC-05 ou cabo USB e reconecta sozinho às placas já usadas. Com a placa conectada, o app envia frases e volume, testa os botões e acompanha em tempo real os botões apertados; as vozes continuam indo pelo cartão SD. Isso também ajuda nos testes de validação, porque o app vê cada acionamento.
 
@@ -118,6 +122,8 @@ O cartão deve estar em FAT32. O DFPlayer identifica o arquivo pelo número de t
 | Personalização | "sem reprogramação", gravação manual dos MP3 | App com gravação, tratamento do áudio e exportação para o cartão | Pode ser citado como evolução da "interface gráfica" prevista |
 | Bluetooth | Não citado | App pronto; requer placa com ESP32 | Incluir nas perspectivas futuras, não nos resultados |
 | Fabricação | Corte a laser (o resumo em inglês cita também impressão 3D) | — | Alinhar os resumos em português e inglês |
+| Resultados | Tempos e eficiência projetados (1,8 s; 97,5%) | Modo de teste no app mede acerto e tempo de resposta (pelo BUSY do DFPlayer) e gera a Tabela 1 por bloco | Substituir as projeções pelas medições das sessões de teste |
+| Pictogramas | Pictogramas impressos (futuro em 3D colorido); a discussão cita símbolos concretos e abstratos | Pictogramas ARASAAC nas etiquetas, com crédito | Citar a ARASAAC no artigo, com o crédito exigido pela licença |
 | Custo | Texto cita "< R$ 120", "< R$ 130" e R$ 152,06 | — | A soma da tabela original dá R$ 152,31; com 10 botões, R$ 146,33 |
 
 ## Decisões e pontos a confirmar
@@ -125,6 +131,6 @@ O cartão deve estar em FAT32. O DFPlayer identifica o arquivo pelo número de t
 - Manter firmware e aplicação de software em camadas e diretórios independentes; `software/app/js/layout.js` e `PINOS_BOTOES` do firmware devem mudar juntos.
 - Confirmar a reprodução de WAV no módulo DFPlayer usado (alguns clones só aceitam MP3).
 - A bateria 9 V tem baixa autonomia para Arduino + DFPlayer; a troca por Li-Po já está prevista.
-- Os tempos de resposta e a eficiência citados no artigo (1,8 s; 97,5%) são **projeções**. Devem ser substituídos por medições com o protótipo físico, seguindo o protocolo de [artigo-mnr2026.md](artigo-mnr2026.md#plano-de-validação).
+- Os tempos de resposta e a eficiência citados no artigo (1,8 s; 97,5%) são **projeções**. Devem ser substituídos por medições com o protótipo físico, seguindo o protocolo de [artigo-mnr2026.md](artigo-mnr2026.md#plano-de-validação). O modo de teste do app automatiza esse protocolo; ligue o BUSY do DFPlayer ao D12 para medir o tempo de resposta.
 
 Os sketches existentes são a fonte do comportamento implementado. Este documento registra o contexto conhecido e não substitui a validação do circuito.

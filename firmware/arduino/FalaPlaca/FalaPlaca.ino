@@ -1,7 +1,8 @@
 // FalaPlaca - prancheta de CAA com 10 botões e DFPlayer Mini.
 // Botão n toca /01/00n.mp3 (ou .wav) do cartão MicroSD e acende o LED por 2 s.
 // Funciona no Arduino UNO (DFPlayer via SoftwareSerial) e no Mega (via Serial1).
-// O app configura a placa (volume, frases, teste dos botões e aviso dos botões apertados) por:
+// O app configura a placa (volume, frases, ajustes, teste dos botões, aviso dos botões apertados e
+// tempo de resposta medido pelo BUSY do DFPlayer no D12) por:
 //   - cabo USB (UNO e Mega);
 //   - no Mega, módulo Bluetooth na Serial2: BLE (HM-10, AT-09, HC-08) ou clássico (HC-05, HC-06).
 
@@ -35,6 +36,8 @@ const uint8_t PINOS_BOTOES[] = {2, 3, 4, 5, 6, 7, 8, 9, A0, A1};
 const uint8_t TOTAL_BOTOES = sizeof(PINOS_BOTOES) / sizeof(PINOS_BOTOES[0]);
 
 const uint8_t PINO_LED = 13;               // também acende o LED da própria placa
+const uint8_t PINO_BUSY = 12;              // BUSY do DFPlayer (LOW enquanto toca); opcional, para medir a latência
+const unsigned long ESPERA_AUDIO_MS = 3000; // sem início de áudio nesse tempo, desiste da medição
 const uint8_t PASTA_AUDIOS = 1;            // pasta /01 do cartão
 const uint8_t VOLUME_PADRAO = 22;          // 0 (mudo) a 30 (máximo)
 const unsigned long DEBOUNCE_MS = 50;      // tempo de estabilização da leitura (ao soltar e mínimo ao apertar)
@@ -57,10 +60,11 @@ const uint8_t ASSINATURA = 0xFA;
 const uint8_t FRASE_MAX = 64;              // bytes UTF-8 (40 caracteres com acentos)
 
 struct Botao {
-  uint8_t estado;            // estado estável confirmado (depois do debounce)
-  uint8_t ultimaLeitura;     // última leitura crua (pode estar "chiando")
-  unsigned long ultimaMudanca;
-  unsigned long ultimoToque; // quando a frase deste botão tocou pela última vez
+  bool pressionando;            // contato fechado; falhas menores que DEBOUNCE_MS não contam como soltar
+  bool disparado;               // a frase desta pressão já tocou
+  unsigned long inicioPressao;  // quando a pressão começou
+  unsigned long ultimoContato;  // última leitura com o contato fechado
+  unsigned long ultimoToque;    // quando a frase deste botão tocou pela última vez
   bool jaTocou;
 };
 
@@ -79,12 +83,21 @@ uint8_t volume = VOLUME_PADRAO;
 uint16_t pressaoMs = PRESSAO_PADRAO_MS;
 uint16_t repeticaoMs = REPETICAO_PADRAO_MS;
 
+// Medição do tempo de resposta (aperto -> início do áudio) pelo pino BUSY, para o modo de teste do app.
+uint8_t audioMedido = 0;                   // botão cuja frase está para começar (0 = nenhuma medição)
+unsigned long inicioMedicao = 0;
+
 Canal canalUsb = {Serial, {}, 0};
 #ifdef TEM_BLUETOOTH
 Canal canalBt = {moduloBT, {}, 0};
 #endif
 
-void tocarFrase(uint8_t numero) {
+// desde: instante do aperto (ou do comando do app), base da medição do tempo de resposta.
+void tocarFrase(uint8_t numero, unsigned long desde) {
+  // Só mede se o DFPlayer estava parado: tocando, o BUSY já está em LOW e a medição sairia errada.
+  // Sem o fio do BUSY ligado, o pino fica em HIGH (pull-up) e a medição apenas expira.
+  audioMedido = digitalRead(PINO_BUSY) == HIGH ? numero : 0;
+  inicioMedicao = desde;
   mp3.playFolder(PASTA_AUDIOS, numero);
   digitalWrite(PINO_LED, HIGH);
   ledAceso = true;
@@ -152,7 +165,7 @@ void processarComando(char *comando, Stream &porta) {
   } else if (!strcmp(comando, "PLAY")) {
     uint8_t numero = lerBotao(args);
     if (!numero) return responder(porta, F("ERR botao"));
-    tocarFrase(numero);
+    tocarFrase(numero, millis());
     responder(porta, F("OK"));
   } else if (!strcmp(comando, "TXT")) {
     uint8_t numero = lerBotao(args);
@@ -186,14 +199,21 @@ void lerCanal(Canal &canal) {
   }
 }
 
-// Avisa o app, por todas as conexões, que um botão físico foi apertado.
-void avisarBotao(uint8_t numero) {
-  Serial.print(F("BTN "));
-  Serial.println(numero);
+void enviarEvento(Stream &porta, const __FlashStringHelper *evento, uint8_t numero, long valor) {
+  porta.print(evento);
+  porta.print(numero);
+  if (valor >= 0) {
+    porta.print(' ');
+    porta.print(valor);
+  }
+  porta.print('\n');
+}
+
+// Avisa o app, por todas as conexões: "BTN <n>" (botão apertado) ou "AUDIO <n> <ms>" (áudio começou).
+void avisarApp(const __FlashStringHelper *evento, uint8_t numero, long valor = -1) {
+  enviarEvento(Serial, evento, numero, valor);
 #ifdef TEM_BLUETOOTH
-  moduloBT.print(F("BTN "));
-  moduloBT.print(numero);
-  moduloBT.print('\n');
+  enviarEvento(moduloBT, evento, numero, valor);
 #endif
 }
 
@@ -205,9 +225,10 @@ void setup() {
 #endif
 
   pinMode(PINO_LED, OUTPUT);
+  pinMode(PINO_BUSY, INPUT_PULLUP);
   for (uint8_t i = 0; i < TOTAL_BOTOES; i++) {
     pinMode(PINOS_BOTOES[i], INPUT_PULLUP);   // botão ligado entre o pino e o GND
-    botoes[i] = {HIGH, HIGH, 0, 0, false};
+    botoes[i] = {false, false, 0, 0, 0, false};
   }
 
   if (EEPROM.read(END_ASSINATURA) == ASSINATURA) {
@@ -240,28 +261,41 @@ void loop() {
 
   for (uint8_t i = 0; i < TOTAL_BOTOES; i++) {
     Botao &b = botoes[i];
-    uint8_t leitura = digitalRead(PINOS_BOTOES[i]);
+    bool contato = digitalRead(PINOS_BOTOES[i]) == LOW;   // botão ligado ao GND
 
-    if (leitura != b.ultimaLeitura) {
-      b.ultimaMudanca = agora;   // leitura mudou: reinicia o timer de estabilização
-      b.ultimaLeitura = leitura;
+    if (contato) {
+      if (!b.pressionando) {
+        b.pressionando = true;
+        b.inicioPressao = agora;
+      }
+      b.ultimoContato = agora;
+    } else if (b.pressionando && (agora - b.ultimoContato) > DEBOUNCE_MS) {
+      b.pressionando = false;    // soltou de verdade: a próxima pressão pode tocar
+      b.disparado = false;
     }
 
-    // Aceita a leitura só depois que ela ficou estável: ao apertar, pelo tempo mínimo de pressão
-    // (toques rápidos e acidentais não tocam); ao soltar, pelo debounce.
-    unsigned long estabilidade = (leitura == LOW) ? pressaoMs : DEBOUNCE_MS;
-    if ((agora - b.ultimaMudanca) > estabilidade && leitura != b.estado) {
-      b.estado = leitura;
-      if (b.estado == LOW) {     // dispara só ao pressionar, não ao soltar
-        // Mesma frase de novo antes do intervalo (ex.: tremor repetindo o toque): ignora.
-        bool cedoDemais = repeticaoMs && b.jaTocou && (agora - b.ultimoToque) < repeticaoMs;
-        if (!cedoDemais) {
-          b.ultimoToque = agora;
-          b.jaTocou = true;
-          tocarFrase(i + 1);
-          avisarBotao(i + 1);    // o app acende o botão no mapa
-        }
+    // Toca uma vez por pressão, quando ela dura o tempo mínimo configurado: toques rápidos e
+    // acidentais não tocam, e falhas curtas do contato por tremor não reiniciam a contagem.
+    if (b.pressionando && !b.disparado && contato && (agora - b.inicioPressao) >= pressaoMs) {
+      b.disparado = true;
+      // Mesma frase de novo antes do intervalo (ex.: tremor repetindo o toque): ignora.
+      bool cedoDemais = repeticaoMs && b.jaTocou && (agora - b.ultimoToque) < repeticaoMs;
+      if (!cedoDemais) {
+        b.ultimoToque = agora;
+        b.jaTocou = true;
+        tocarFrase(i + 1, b.inicioPressao);   // tempo de resposta conta desde o aperto
+        avisarApp(F("BTN "), i + 1);          // o app acende o botão no mapa
       }
+    }
+  }
+
+  // Tempo de resposta: do aperto até o DFPlayer começar a tocar (BUSY vai para LOW).
+  if (audioMedido) {
+    if (digitalRead(PINO_BUSY) == LOW) {
+      avisarApp(F("AUDIO "), audioMedido, agora - inicioMedicao);
+      audioMedido = 0;
+    } else if (agora - inicioMedicao > ESPERA_AUDIO_MS) {
+      audioMedido = 0;                   // BUSY não ligado ou áudio não tocou
     }
   }
 

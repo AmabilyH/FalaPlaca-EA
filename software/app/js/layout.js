@@ -42,17 +42,18 @@ export const POSICOES = Array.from({ length: 10 }, (_, i) => ({
   coluna: i % 5,
 }));
 
+// arasaac: id do pictograma padrão (ver js/arasaac.js); icone: emoji alternativo, sem internet.
 const PADRAO = {
-  1: { texto: 'Estou com dor.', icone: '🤕', bloco: 0 },
-  2: { texto: 'Preciso ir ao banheiro.', icone: '🚽', bloco: 0 },
-  3: { texto: 'Preciso de água.', icone: '💧', bloco: 0 },
-  4: { texto: 'Estou feliz.', icone: '😊', bloco: 1 },
-  5: { texto: 'Estou triste.', icone: '😢', bloco: 1 },
-  6: { texto: 'Estou com medo.', icone: '😨', bloco: 1 },
-  7: { texto: 'Preciso de ajuda.', icone: '🙋', bloco: 2 },
-  8: { texto: 'Não entendi.', icone: '❓', bloco: 2 },
-  9: { texto: 'Olá.', icone: '👋', bloco: 3 },
-  10: { texto: 'Obrigado(a).', icone: '🙏', bloco: 3 },
+  1: { texto: 'Estou com dor.', icone: '🤕', arasaac: 2367, bloco: 0 },
+  2: { texto: 'Preciso ir ao banheiro.', icone: '🚽', arasaac: 2430, bloco: 0 },
+  3: { texto: 'Preciso de água.', icone: '💧', arasaac: 2248, bloco: 0 },
+  4: { texto: 'Estou feliz.', icone: '😊', arasaac: 32123, bloco: 1 },
+  5: { texto: 'Estou triste.', icone: '😢', arasaac: 2606, bloco: 1 },
+  6: { texto: 'Estou com medo.', icone: '😨', arasaac: 10261, bloco: 1 },
+  7: { texto: 'Preciso de ajuda.', icone: '🙋', arasaac: 7171, bloco: 2 },
+  8: { texto: 'Não entendi.', icone: '❓', arasaac: 27363, bloco: 2 },
+  9: { texto: 'Olá.', icone: '👋', arasaac: 6009, bloco: 3 },
+  10: { texto: 'Obrigado(a).', icone: '🙏', arasaac: 8128, bloco: 3 },
 };
 
 export const ICONES = [
@@ -65,6 +66,17 @@ export const ICONES = [
 
 export const TEXTO_MAXIMO = 40;
 
+// Ajustes anti-tremor enviados à placa (comando AJUSTE). O padrão é o comportamento original.
+// Os perfis são pontos de partida: ajuste com o estudante, observando toques acidentais e repetições.
+export const LIMITES_AJUSTES = { pressaoMin: 50, pressaoMax: 1500, repeticaoMax: 10000 };
+export const PERFIS_TREMOR = [
+  { nome: 'Padrão', pressaoMs: 50, repeticaoMs: 0 },
+  { nome: 'Leve', pressaoMs: 150, repeticaoMs: 1000 },
+  { nome: 'Moderado', pressaoMs: 300, repeticaoMs: 2000 },
+  { nome: 'Intenso', pressaoMs: 600, repeticaoMs: 3000 },
+];
+const ajustesPadrao = () => ({ pressaoMs: PERFIS_TREMOR[0].pressaoMs, repeticaoMs: PERFIS_TREMOR[0].repeticaoMs });
+
 export const nomeArquivo = (numero, extensao = 'wav') =>
   `${String(numero).padStart(3, '0')}.${extensao}`;
 
@@ -75,6 +87,7 @@ export function placaPadrao() {
   return {
     versao: VERSAO_PLACA,
     volume: 22,
+    ajustes: ajustesPadrao(),
     botoes: POSICOES.map((p) => ({
       numero: p.numero,
       assento: `${p.fileira + 1}${COLUNAS[p.coluna]}`,
@@ -83,23 +96,39 @@ export function placaPadrao() {
       bloco: PADRAO[p.numero].bloco,
       texto: PADRAO[p.numero].texto,
       icone: PADRAO[p.numero].icone,
+      picto: { id: PADRAO[p.numero].arasaac }, // pictograma ARASAAC; null = usa o emoji
       audio: null, // { duracao, picos, origem, atualizadoEm }
     })),
   };
 }
 
+// Placas salvas antes dos pictogramas ARASAAC: usa o pictograma padrão só onde o emoji
+// também era o padrão; um emoji escolhido pela professora é mantido.
+function pictoInicial(b) {
+  const padrao = PADRAO[b.numero];
+  return padrao && b.icone === padrao.icone ? { id: padrao.arasaac } : null;
+}
+
 // Versões anteriores tinham outro desenho de placa; frases, pictogramas e áudios
 // são mantidos pelo número do botão, que não mudou.
 export function migrarPlaca(salva) {
-  if (salva?.versao === VERSAO_PLACA) return salva;
+  if (salva?.versao === VERSAO_PLACA) {
+    return {
+      ...salva,
+      ajustes: salva.ajustes ?? ajustesPadrao(),
+      botoes: salva.botoes.map((b) => ({ ...b, picto: b.picto === undefined ? pictoInicial(b) : b.picto })),
+    };
+  }
   const placa = placaPadrao();
   if (!salva?.botoes) return placa;
   placa.volume = salva.volume ?? placa.volume;
+  placa.ajustes = salva.ajustes ?? placa.ajustes;
   for (const b of placa.botoes) {
     const antigo = salva.botoes.find((a) => a.numero === b.numero);
     if (!antigo) continue;
     b.texto = antigo.texto;
     b.icone = antigo.icone;
+    b.picto = pictoInicial(antigo);
     b.audio = antigo.audio;
   }
   return placa;

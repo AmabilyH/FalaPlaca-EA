@@ -1,11 +1,12 @@
 // Service worker: rede primeiro (sempre a versão mais nova) e cache como reserva offline.
 
-const CACHE = 'falaplaca-v5';
+const CACHE = 'falaplaca-v7';
 const ARQUIVOS = [
   './',
   'index.html',
   'css/styles.css',
   'js/app.js',
+  'js/arasaac.js',
   'js/audio.js',
   'js/bluetooth.js',
   'js/conexao.js',
@@ -13,10 +14,12 @@ const ARQUIVOS = [
   'js/google.js',
   'js/icones.js',
   'js/layout.js',
+  'js/modo-teste.js',
   'js/protocolo.js',
   'js/sdcard.js',
   'js/serial.js',
   'js/store.js',
+  'js/teste.js',
   'js/zip.js',
   'manifest.webmanifest',
   'icons/icon.svg',

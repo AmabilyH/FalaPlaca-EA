@@ -51,6 +51,14 @@ cd software
 npm start
 ```
 
-Abra `http://localhost:5173`. Detalhes de uso no celular, Bluetooth e protocolo em [software/README.md](software/README.md).
+Abra `http://localhost:5173`. No app, a professora:
+
+- configura cada botão: frase, pictograma ARASAAC e voz;
+- grava o cartão SD ou conecta à placa (Bluetooth ou cabo USB) para enviar frases e ajustes para tremor;
+- aplica o **modo de teste**, que mede acerto e tempo de resposta por bloco, como no protocolo do artigo, e exporta a planilha.
+
+Detalhes de uso no celular, conexão, modo de teste e protocolo em [software/README.md](software/README.md).
+
+Pictogramas: Sergio Palao. Origem: [ARASAAC](https://arasaac.org). Licença CC BY-NC-SA. Propriedade: Governo de Aragão (Espanha).
 
 Consulte [o contexto do projeto](docs/contexto/README.md) para requisitos, decisões e pontos de hardware a confirmar.

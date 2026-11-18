@@ -27,7 +27,8 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
   - Acima de cada botão fica a etiqueta com o pictograma e a frase, e uma faixa colorida indica o bloco temático.
   - No estilo de um mapa de assentos de avião, as fileiras são 1–2 e as colunas A–E; cada botão tem um código (1A, 2C…).
   - A legenda mostra com áudio, falta gravar, selecionado e tocando. Ao tocar uma frase, o botão e o LED acendem por 2 s, como na placa real.
-- **Editor do botão:** prévia do botão com sua cor e forma, frase de até 40 caracteres, bloco temático (Saúde, Emoções, Escola, Social), grade de pictogramas e seção de voz.
+- **Editor do botão:** prévia do botão com sua cor e forma, frase de até 40 caracteres, bloco temático (Saúde, Emoções, Escola, Social), seção de voz e pictograma.
+  - **Pictogramas ARASAAC** (padrão): o app sugere pictogramas a partir da frase ("Preciso de água" → "água") e permite buscar outra palavra. O escolhido é baixado uma vez e guardado no aparelho, então aparece offline e nas etiquetas impressas. Aba **Emoji** como alternativa.
   - gravar pelo microfone (até 8 s), enviar um arquivo de áudio, ouvir e remover;
   - prévia com voz sintética do navegador;
   - setas para ir de botão em botão, como quem percorre os assentos.
@@ -36,7 +37,8 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
   - no Chrome/Edge do computador, grava direto no cartão (`/01/001.wav` … `/01/010.wav` + `falaplaca.json`) e remove versões antigas com o mesmo número;
   - nos demais navegadores, baixa um `.zip` com a mesma estrutura.
 - **Conectar à placa:** um único botão, **Procurar FalaPlaca**, para qualquer forma de ligação (ver abaixo). Com a placa conectada, o app envia frases e volume, toca qualquer botão e acende no mapa o botão apertado na placa. No Arduino, os áudios continuam indo pelo cartão SD; na futura FalaPlaca ESP32, vão junto, **sem cartão**. O link **Testar sem placa** abre uma demonstração.
-- **Imprimir etiquetas:** imprime só a placa, para recortar os pictogramas e as frases.
+- **Modo de teste:** sessões de validação como as do artigo (ver abaixo), com resultado por bloco e planilha CSV.
+- **Imprimir etiquetas:** imprime só a placa, para recortar os pictogramas e as frases, com o crédito da ARASAAC.
 - **Offline:** os dados ficam no próprio aparelho (IndexedDB), e o service worker guarda o app para abrir sem internet.
 
 ## Login com Google: configuração
@@ -85,14 +87,70 @@ O que funciona por qualquer uma dessas ligações:
 
 | Ação | Comando | Na placa |
 | :-- | :-- | :-- |
-| Identificar | `HELLO` → `FALAPLACA v1 placa=mega audio=sd botoes=10` | O app passa a enviar só frases e volume |
+| Identificar | `HELLO` → `FALAPLACA v1 placa=mega audio=sd botoes=10 pressao=50 repeticao=0` | O app passa a enviar só frases, volume e ajustes. Sem `pressao=` (firmware antigo), o app não envia ajustes e pede a atualização do firmware |
 | Volume | `VOL <0-30>` → `OK` | Ajusta o DFPlayer e guarda na EEPROM (vale após religar) |
+| Ajustes para tremor | `AJUSTE <pressão ms> <espera ms>` → `OK` | Tempo mínimo segurando o botão (50–1500 ms) e espera para repetir a mesma frase (0–10000 ms; 0 = sem espera). Guardados na EEPROM |
 | Frase | `TXT <n> <frase>` → `OK` | Guarda a frase na EEPROM, como referência |
 | Testar | `PLAY <n>` → `OK` | Toca o botão *n* e acende o LED |
 | Botão apertado | a placa envia `BTN <n>` | O app acende o mesmo botão no mapa |
+| Áudio começou | a placa envia `AUDIO <n> <ms>` | Tempo do aperto até o DFPlayer começar a tocar, medido pelo pino BUSY (D12). Usado pelo modo de teste; sem o fio do BUSY, não é enviado |
 | Áudio | `AUD …` → `ERR audio pelo cartao SD` | Não suportado: use a aba Cartão SD |
 
+**Ajustes para tremor** (aba Conectar, com a placa conectada): quatro perfis prontos e ajuste fino. São pontos de partida, para calibrar observando o estudante:
+
+| Perfil | Segurar por pelo menos | Espera para repetir a mesma frase |
+| :-- | :-: | :-: |
+| Padrão (comportamento original) | 0,05 s | sem espera |
+| Leve | 0,15 s | 1 s |
+| Moderado | 0,3 s | 2 s |
+| Intenso | 0,6 s | 3 s |
+
+- **Tempo mínimo de pressão:** toques mais curtos (esbarrões, toques acidentais) não tocam. A frase toca assim que a pressão atinge o tempo, sem esperar soltar. Falhas curtas do contato durante a pressão (menos de 50 ms, comuns com tremor) não reiniciam a contagem.
+- **Espera para repetir:** o mesmo botão só toca de novo depois do intervalo; outros botões tocam na hora. O comando `PLAY` do app não é afetado, para não atrapalhar os testes.
+
 Os comandos são linhas de texto terminadas em `\n`. No módulo BLE, o app divide cada linha em pacotes de até 20 bytes (limite desses módulos). Em todas as ligações, junta as respostas que chegam em pedaços e ignora as linhas de diagnóstico da placa (ex.: `Tocando botao 3`, enviada pela USB).
+
+## Modo de teste
+
+Reproduz o protocolo de validação do artigo (seção 3): para cada tentativa, o app pede um botão, e a placa informa qual botão foi apertado e quando o áudio começou. Quem aplica o teste confirma se o áudio estava certo.
+
+1. Conecte a placa (ou use a demonstração, em que o aperto é simulado tocando no mini-mapa).
+2. Informe o(a) avaliador(a), as repetições por botão (1 a 10) e a ordem: aleatória, sem o mesmo botão duas vezes seguidas, ou em sequência.
+3. A cada pedido, aperte o botão na placa e responda **Sim**, **Não** ou **Não tocou** (atalhos S, N e T). A confirmação pode ser desligada.
+
+Medidas registradas em cada tentativa:
+
+| Medida | Como é obtida |
+| :-- | :-- |
+| Botão certo | O botão apertado (`BTN`) é o pedido? |
+| Acerto do áudio | Confirmação de quem aplica o teste: o áudio corresponde à frase do botão apertado? |
+| Tempo de resposta | Do início da pressão no botão até o DFPlayer começar a tocar (`AUDIO`, pino BUSY). Exige o fio BUSY → D12 |
+| Tempo de reação | Do pedido na tela até o aperto (desempenho de quem aperta) |
+
+No fim aparecem: acerto do áudio, botão certo, tempo médio de resposta (com mediana e desvio padrão amostral) e uma tabela por bloco no formato da Tabela 1 do artigo. O app também indica se o critério da hipótese (acerto ≥ 90%) foi atingido. As sessões ficam salvas no aparelho (**Testes anteriores**) e cada uma pode ser baixada como planilha CSV, com uma linha por tentativa, `;` como separador e vírgula decimal, para abrir direto no Excel ou no LibreOffice.
+
+O código está em [app/js/teste.js](app/js/teste.js) (sorteio, estatística e CSV) e [app/js/modo-teste.js](app/js/modo-teste.js) (tela).
+
+## Pictogramas ARASAAC
+
+Os pictogramas vêm da [ARASAAC](https://arasaac.org), o acervo de referência em Comunicação Aumentativa e Alternativa. A busca usa a API pública, primeiro em português do Brasil e depois em português de Portugal. A imagem escolhida é guardada no aparelho (IndexedDB), por isso o app continua funcionando sem internet; só a busca de novos pictogramas precisa de conexão.
+
+Padrões de cada botão:
+
+| Botão | Frase | Pictograma (ID) |
+| :-: | :-- | :-: |
+| 1 | Estou com dor. | 2367 |
+| 2 | Preciso ir ao banheiro. | 2430 |
+| 3 | Preciso de água. | 2248 |
+| 4 | Estou feliz. | 32123 |
+| 5 | Estou triste. | 2606 |
+| 6 | Estou com medo. | 10261 |
+| 7 | Preciso de ajuda. | 7171 |
+| 8 | Não entendi. | 27363 |
+| 9 | Olá. | 6009 |
+| 10 | Obrigado(a). | 8128 |
+
+**Licença:** CC BY-NC-SA 4.0. O uso educacional e não comercial é livre, desde que se dê o crédito, e obras derivadas devem manter a mesma licença. O crédito aparece no mapa da placa e nas etiquetas impressas: *"Pictogramas: Sergio Palao. Origem: ARASAAC (arasaac.org). Licença CC BY-NC-SA. Propriedade: Governo de Aragão (Espanha)."* Ao publicar o artigo ou fotos das etiquetas, inclua o mesmo crédito.
 
 ## Bluetooth sem cartão: requisito de hardware
 
@@ -145,17 +203,23 @@ software/
   package.json        script "start"
   servidor.mjs        servidor estático local (sem dependências)
   app/
-    index.html        telas: entrada, mapa da placa, editor e envio
+    index.html        telas: entrada, mapa da placa, editor, conexão e modo de teste
     manifest.webmanifest, sw.js, icons/
     css/styles.css
     js/
       app.js          interface e fluxo
-      layout.js       posições dos 10 botões e frases padrão (espelha o firmware)
+      layout.js       posições dos 10 botões, frases e pictogramas padrão (espelha o firmware)
       audio.js        gravação, corte de silêncio, WAV e PCM 8 bits
-      store.js        persistência (IndexedDB)
+      arasaac.js      busca e download de pictogramas ARASAAC
+      store.js        persistência (IndexedDB): placa, áudios, pictogramas e testes
       sdcard.js       gravação no cartão / .zip
       zip.js          gerador de ZIP e CRC-32
-      bluetooth.js    Web Bluetooth + placa de demonstração
+      conexao.js      "Procurar FalaPlaca": escolhe Bluetooth BLE ou porta serial
+      protocolo.js    comandos e eventos da placa + placa de demonstração
+      bluetooth.js    Web Bluetooth (módulo BLE e futura ESP32)
+      serial.js       Web Serial (HC-05 e cabo USB)
+      teste.js        modo de teste: sorteio, estatística e CSV
+      modo-teste.js   modo de teste: tela
       config.js       GOOGLE_CLIENT_ID
       google.js       login com Google (Google Identity Services)
       icones.js       ícones SVG

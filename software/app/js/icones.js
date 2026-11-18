@@ -19,6 +19,7 @@ const CAMINHOS = {
   lapis: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   baixar: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
   instalar: '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M12 7v8M9 12l3 3 3-3"/>',
+  teste: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/>',
   placa: '<rect x="4" y="2" width="16" height="20" rx="3"/><circle cx="9" cy="9" r="1.6"/><circle cx="15" cy="9" r="1.6"/><circle cx="9" cy="15" r="1.6"/><circle cx="15" cy="15" r="1.6"/>',
 };
 

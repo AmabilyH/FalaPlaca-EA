@@ -6,21 +6,41 @@ import { paraPcm8 } from './audio.js';
 export const TAXA_AUDIO_PLACA = 8000;
 export const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Registra um ouvinte e devolve a função que o remove.
+function ouvir(lista, callback) {
+  lista.push(callback);
+  return () => {
+    const i = lista.indexOf(callback);
+    if (i >= 0) lista.splice(i, 1);
+  };
+}
+
 export class Dispositivo {
   ouvintesDesconexao = [];
   ouvintesBotao = [];
+  ouvintesAudio = [];
 
-  aoDesconectar(callback) { this.ouvintesDesconexao.push(callback); }
-  aoAcionarBotao(callback) { this.ouvintesBotao.push(callback); }
+  aoDesconectar(callback) { return ouvir(this.ouvintesDesconexao, callback); }
+  // callback(numero): botão físico apertado ("BTN <n>")
+  aoAcionarBotao(callback) { return ouvir(this.ouvintesBotao, callback); }
+  // callback(numero, ms): áudio começou, ms depois do aperto ("AUDIO <n> <ms>"; requer o BUSY ligado)
+  aoIniciarAudio(callback) { return ouvir(this.ouvintesAudio, callback); }
   definirVolume(volume) { return this.comando(`VOL ${volume}`); }
   tocar(numero) { return this.comando(`PLAY ${numero}`); }
+
+  // Ajustes anti-tremor: tempo mínimo de pressão e espera para repetir a mesma frase (ms).
+  definirAjustes({ pressaoMs, repeticaoMs }) { return this.comando(`AJUSTE ${pressaoMs} ${repeticaoMs}`); }
 
   // Placa com DFPlayer: os áudios só podem ir pelo cartão SD.
   get audioPeloCartao() { return this.info?.audio === 'sd'; }
 
+  // Firmware que informa os ajustes no HELLO sabe aplicá-los.
+  get aceitaAjustes() { return this.info?.pressao !== undefined; }
+
   // aoProgresso(numero, etapa, fracao): etapa = 'enviando' | 'ok' | 'sem-audio' | 'cartao'
   async enviar(placa, audios, aoProgresso) {
     await this.comando(`VOL ${placa.volume}`);
+    if (this.aceitaAjustes) await this.definirAjustes(placa.ajustes);
     for (const botao of placa.botoes) {
       aoProgresso(botao.numero, 'enviando', 0);
       await this.comando(`TXT ${botao.numero} ${botao.texto}`);
@@ -60,6 +80,11 @@ export class DispositivoTexto extends Dispositivo {
     if (mensagem.startsWith('BTN ')) {
       const numero = Number(mensagem.slice(4));
       this.ouvintesBotao.forEach((cb) => cb(numero));
+      return;
+    }
+    if (mensagem.startsWith('AUDIO ')) {
+      const [numero, ms] = mensagem.slice(6).split(' ').map(Number);
+      this.ouvintesAudio.forEach((cb) => cb(numero, ms));
       return;
     }
     const erro = mensagem.startsWith('ERR');
@@ -120,9 +145,10 @@ export class DispositivoSimulado extends Dispositivo {
   constructor(tipo = 'mega') {
     super();
     this.nome = 'FalaPlaca demonstração';
+    const ajustes = { pressao: '50', repeticao: '0' };
     this.info = tipo === 'mega'
-      ? { placa: 'mega', audio: 'sd', botoes: '10' }
-      : { botoes: '10', livre: '1200000' };
+      ? { placa: 'mega', audio: 'sd', botoes: '10', ...ajustes }
+      : { botoes: '10', livre: '1200000', ...ajustes };
   }
 
   async conectar() {
@@ -131,11 +157,19 @@ export class DispositivoSimulado extends Dispositivo {
 
   async comando(texto) {
     await esperar(60);
-    if (texto.startsWith('PLAY ')) {
-      const numero = Number(texto.slice(5));
-      this.ouvintesBotao.forEach((cb) => cb(numero));
-    }
+    if (texto.startsWith('PLAY ')) this.simularAudio(Number(texto.slice(5)));
     return 'OK';
+  }
+
+  // Imita um aperto físico (modo de teste sem hardware): BTN e, logo depois, o início do áudio.
+  simularAperto(numero) {
+    this.ouvintesBotao.forEach((cb) => cb(numero));
+    this.simularAudio(numero);
+  }
+
+  simularAudio(numero) {
+    const ms = Math.round(250 + Math.random() * 450);   // latência típica do DFPlayer (estimativa)
+    setTimeout(() => this.ouvintesAudio.forEach((cb) => cb(numero, ms)), ms);
   }
 
   async enviarAudio(numero, pcm, aoProgresso) {

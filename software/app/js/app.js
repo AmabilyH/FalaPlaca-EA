@@ -1,5 +1,5 @@
 import {
-  BLOCOS, ICONES, TEXTO_MAXIMO, corDoBotao, formaDoBotao, migrarPlaca, nomeArquivo,
+  BLOCOS, ICONES, PERFIS_TREMOR, TEXTO_MAXIMO, corDoBotao, formaDoBotao, migrarPlaca, nomeArquivo,
 } from './layout.js';
 import * as banco from './store.js';
 import { prepararAudio, Gravador, GRAVACAO_MAXIMA_S } from './audio.js';
@@ -8,6 +8,8 @@ import { DispositivoSimulado } from './protocolo.js';
 import { formasDisponiveis, procurarFalaPlaca, reconectarConhecida } from './conexao.js';
 import { icone, preencherIcones } from './icones.js';
 import { googleConfigurado, prepararBotaoGoogle, sairDoGoogle } from './google.js';
+import { baixarPictograma, buscarPictogramas, termosDaFrase, urlPictograma } from './arasaac.js';
+import { configurarModoTeste } from './modo-teste.js';
 
 const $ = (seletor, raiz = document) => raiz.querySelector(seletor);
 const $$ = (seletor, raiz = document) => [...raiz.querySelectorAll(seletor)];
@@ -20,6 +22,9 @@ const estado = {
   gravacao: null,         // { gravador, numero, inicio }
   reproducao: null,       // HTMLAudioElement em execução
   enviando: false,
+  pictos: new Map(),      // id ARASAAC -> URL da imagem guardada no aparelho
+  fontePicto: 'arasaac',  // aba do editor: 'arasaac' | 'emoji'
+  buscaPicto: null,       // { numero, termo } da última busca mostrada no editor
   buscaManual: false,     // já tentou reconectar sozinho: o próximo toque abre a janela de escolha
   tentativasBusca: 0,     // buscas canceladas: alterna entre Bluetooth BLE e porta serial
 };
@@ -117,6 +122,38 @@ async function abrirPainel(usuario) {
   await carregarDados();
   renderPlaca();
   mostrarTela('tela-painel');
+  carregarPictogramas();
+}
+
+// ---------------------------------------------------------------- pictogramas ARASAAC
+
+// Imagem do pictograma guardada no aparelho; baixa da ARASAAC só na primeira vez.
+async function garantirPictograma(id) {
+  if (estado.pictos.has(id)) return estado.pictos.get(id);
+  let blob = await banco.carregarPictograma(id).catch(() => null);
+  if (!blob && navigator.onLine) {
+    blob = await baixarPictograma(id).catch(() => null);
+    if (blob) await banco.salvarPictograma(id, blob).catch(() => {});
+  }
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  estado.pictos.set(id, url);
+  return url;
+}
+
+async function carregarPictogramas() {
+  await Promise.all(estado.placa.botoes.filter((b) => b.picto).map(async (b) => {
+    if (await garantirPictograma(b.picto.id)) atualizarAssento(b.numero);
+  }));
+  if (estado.selecionado) renderEditor();
+}
+
+// Pictograma ARASAAC quando disponível no aparelho; senão, o emoji do botão.
+function pictoHTML(b, classe = 'picto') {
+  const url = b.picto && estado.pictos.get(b.picto.id);
+  return url
+    ? `<img class="${classe}" src="${url}" alt="">`
+    : `<span class="emoji">${b.icone || '❔'}</span>`;
 }
 
 async function carregarDados() {
@@ -163,7 +200,7 @@ function atualizarAssento(numero) {
   const el = $(`.assento[data-numero="${numero}"]`);
   if (!el) return;
   el.style.setProperty('--cor', BLOCOS[b.bloco].cor);
-  $('.assento-icone', el).textContent = b.icone || '❔';
+  $('.assento-icone', el).innerHTML = pictoHTML(b);
   $('.assento-texto', el).textContent = b.texto || 'Sem frase';
   el.classList.toggle('sem-audio', !b.audio);
   el.classList.toggle('sem-texto', !b.texto);
@@ -241,7 +278,7 @@ function renderEditor() {
   $('#previa-posicao').textContent = `Botão ${corDoBotao(b).nome} · ${formaDoBotao(b).nome}`;
   $('#previa-forma path').setAttribute('d', formaDoBotao(b).d);
   $('#editor-arquivo').textContent = `Cartão: 01/${nomeArquivo(numero)}`;
-  $('#previa-icone').textContent = b.icone || '❔';
+  $('#previa-icone').innerHTML = pictoHTML(b);
   $('#previa-texto').textContent = b.texto || 'Sem frase';
 
   const campo = $('#campo-texto');
@@ -253,8 +290,9 @@ function renderEditor() {
   });
 
   $$('#grade-icones button').forEach((el) => {
-    el.setAttribute('aria-selected', String(el.dataset.pictograma === b.icone));
+    el.setAttribute('aria-selected', String(!b.picto && el.dataset.pictograma === b.icone));
   });
+  renderPictogramas();
 
   renderAudio();
 }
@@ -303,6 +341,89 @@ function desenharOnda(picos) {
   });
 }
 
+// Aba de pictogramas do editor: ARASAAC (busca online) ou emoji.
+function renderPictogramas() {
+  const arasaac = estado.fontePicto === 'arasaac';
+  $$('.abas-picto [data-fonte]').forEach((el) => el.setAttribute('aria-selected', String(el.dataset.fonte === estado.fontePicto)));
+  $('#picto-arasaac').hidden = !arasaac;
+  $('#grade-icones').hidden = arasaac;
+  if (!arasaac) return;
+  const b = botao(estado.selecionado);
+  // Ao abrir outro botão, busca sugestões a partir do termo salvo ou da frase.
+  if (estado.buscaPicto?.numero !== b.numero) {
+    const termo = b.picto?.termo;
+    $('#campo-busca-picto').value = termo ?? '';
+    buscarPictos(termo ? [termo] : termosDaFrase(b.texto));
+  } else {
+    marcarPictoEscolhido();
+  }
+}
+
+function marcarPictoEscolhido() {
+  const b = botao(estado.selecionado);
+  $$('#resultados-picto [data-id]').forEach((el) => {
+    el.setAttribute('aria-selected', String(Number(el.dataset.id) === b.picto?.id));
+  });
+}
+
+let buscaAtual = 0;
+async function buscarPictos(termos) {
+  const numero = estado.selecionado;
+  const minhaBusca = ++buscaAtual;
+  estado.buscaPicto = { numero };
+  const status = $('#status-busca-picto');
+  const grade = $('#resultados-picto');
+  if (!termos.length) {
+    grade.innerHTML = '';
+    status.textContent = 'Digite uma palavra para buscar um pictograma.';
+    return;
+  }
+  status.textContent = 'Buscando pictogramas…';
+  try {
+    const { termo, resultados } = await buscarPictogramas(termos);
+    if (minhaBusca !== buscaAtual) return;   // outra busca começou depois desta
+    estado.buscaPicto = { numero, termo };
+    if (!$('#campo-busca-picto').value) $('#campo-busca-picto').value = termo;
+    status.textContent = resultados.length
+      ? `${resultados.length} pictogramas para “${termo}”. Toque em um para usar.`
+      : `Nenhum pictograma para “${termos[0]}”. Tente outra palavra.`;
+    grade.innerHTML = resultados.map((p) => `
+      <button type="button" role="option" data-id="${p.id}" title="${escapar(p.nome)}">
+        <img src="${urlPictograma(p.id)}" alt="${escapar(p.nome)}" loading="lazy" width="64" height="64">
+      </button>`).join('');
+    marcarPictoEscolhido();
+  } catch (err) {
+    if (minhaBusca !== buscaAtual) return;
+    grade.innerHTML = '';
+    status.textContent = `${err.message} Os pictogramas já escolhidos continuam funcionando.`;
+  }
+}
+
+function configurarBuscaPictogramas() {
+  $$('.abas-picto [data-fonte]').forEach((el) => el.addEventListener('click', () => {
+    estado.fontePicto = el.dataset.fonte;
+    renderPictogramas();
+  }));
+  $('#form-busca-picto').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const termo = $('#campo-busca-picto').value.trim();
+    buscarPictos(termo ? [termo] : termosDaFrase(botao(estado.selecionado).texto));
+  });
+  $('#resultados-picto').addEventListener('click', async (e) => {
+    const el = e.target.closest('[data-id]');
+    if (!el) return;
+    const b = botao(estado.selecionado);
+    const id = Number(el.dataset.id);
+    b.picto = { id, termo: estado.buscaPicto?.termo };
+    salvarPlaca();
+    marcarPictoEscolhido();
+    // Baixa e guarda no aparelho, para funcionar offline e na impressão das etiquetas.
+    if (!(await garantirPictograma(id))) avisar('Não foi possível baixar o pictograma. Verifique a internet.', 'erro');
+    atualizarAssento(b.numero);
+    if (estado.selecionado === b.numero) $('#previa-icone').innerHTML = pictoHTML(b);
+  });
+}
+
 function configurarEditor() {
   const grade = $('#grade-icones');
   grade.innerHTML = ICONES.map((ic) =>
@@ -310,11 +431,15 @@ function configurarEditor() {
   grade.addEventListener('click', (e) => {
     const el = e.target.closest('button');
     if (!el) return;
-    botao(estado.selecionado).icone = el.dataset.pictograma;
+    const b = botao(estado.selecionado);
+    b.icone = el.dataset.pictograma;
+    b.picto = null;                       // emoji escolhido no lugar do pictograma ARASAAC
     salvarPlaca();
     atualizarAssento(estado.selecionado);
     renderEditor();
   });
+
+  configurarBuscaPictogramas();
 
   const blocos = $('#grade-blocos');
   blocos.innerHTML = BLOCOS.map((bl, i) =>
@@ -359,6 +484,7 @@ function configurarEditor() {
   $('#btn-remover-audio').addEventListener('click', removerAudio);
   $('#btn-voz').addEventListener('click', falarTexto);
   $('#btn-tocar-placa').addEventListener('click', () => {
+    acenderLed(estado.selecionado);
     estado.dispositivo?.tocar(estado.selecionado).catch((err) => avisar(err.message, 'erro'));
   });
 
@@ -488,7 +614,7 @@ function trocarAba(aba) {
 function linhaEnvio(b, detalhe, classe = '') {
   return `<li data-numero="${b.numero}" style="--cor:${BLOCOS[b.bloco].cor}">
     <span class="tag">${b.assento}</span>
-    <span class="nome"><b>${b.icone} ${escapar(b.texto || 'Sem frase')}</b><small>${detalhe}</small></span>
+    <span class="nome"><b>${pictoHTML(b, 'picto-mini')} ${escapar(b.texto || 'Sem frase')}</b><small>${detalhe}</small></span>
     <span class="estado ${classe}"></span>
   </li>`;
 }
@@ -564,11 +690,7 @@ function configurarEnvio() {
 
   // Conexão direta com a placa (Bluetooth BLE, HC-05 ou cabo USB, escolhidos automaticamente)
   $('#bt-conectar').addEventListener('click', (e) => travarEnvio(e.currentTarget, procurarPlaca));
-  $('#bt-demo').addEventListener('click', (e) => travarEnvio(e.currentTarget, async () => {
-    const d = new DispositivoSimulado();
-    await d.conectar();
-    conectar(d);
-  }));
+  $('#bt-demo').addEventListener('click', (e) => travarEnvio(e.currentTarget, conectarDemonstracao));
   $('#bt-desconectar').addEventListener('click', () => estado.dispositivo?.desconectar());
 
   const volume = $('#campo-volume');
@@ -578,6 +700,8 @@ function configurarEnvio() {
     salvarPlaca();
     estado.dispositivo?.definirVolume(estado.placa.volume).catch((err) => avisar(err.message, 'erro'));
   });
+
+  configurarAjustes();
 
   $('#bt-enviar').addEventListener('click', (e) => travarEnvio(e.currentTarget, async () => {
     const lista = $('#lista-envio');
@@ -593,7 +717,7 @@ function configurarEnvio() {
       if (etapa === 'cartao') marcarLinha(numero, 'frase enviada', 'ok', 1);
     });
     avisar(estado.dispositivo.audioPeloCartao
-      ? 'Frases e volume enviados! As vozes vão pelo cartão SD.'
+      ? 'Frases e ajustes enviados! As vozes vão pelo cartão SD.'
       : 'Placa atualizada! Já pode testar os botões.', 'ok');
   }));
 
@@ -602,6 +726,49 @@ function configurarEnvio() {
   if (!formas.length) {
     dicaBusca('Este navegador não consegue se conectar à placa (iPhone, iPad, Safari e Firefox ainda não permitem). Use o Chrome ou o Edge — ou teste sem placa.');
   }
+}
+
+// ---------------------------------------------------------------- ajustes para tremor
+
+const formatarSegundos = (ms) => `${(ms / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} s`;
+
+function renderAjustes() {
+  const { pressaoMs, repeticaoMs } = estado.placa.ajustes;
+  $('#campo-pressao').value = pressaoMs;
+  $('#campo-repeticao').value = repeticaoMs;
+  $('#pressao-valor').textContent = formatarSegundos(pressaoMs);
+  $('#repeticao-valor').textContent = repeticaoMs ? formatarSegundos(repeticaoMs) : 'sem espera';
+  $$('#perfis-tremor button').forEach((el) => {
+    const perfil = PERFIS_TREMOR[el.dataset.perfil];
+    const ativo = perfil.pressaoMs === pressaoMs && perfil.repeticaoMs === repeticaoMs;
+    el.setAttribute('aria-checked', String(ativo));
+  });
+}
+
+let timerAjustes;
+function aplicarAjustes(novos) {
+  Object.assign(estado.placa.ajustes, novos);
+  salvarPlaca();
+  renderAjustes();
+  // Espera a pessoa parar de mexer para enviar uma vez só.
+  clearTimeout(timerAjustes);
+  timerAjustes = setTimeout(() => {
+    const d = estado.dispositivo;
+    if (d?.aceitaAjustes) d.definirAjustes(estado.placa.ajustes).catch((err) => avisar(err.message, 'erro'));
+  }, 300);
+}
+
+function configurarAjustes() {
+  $('#perfis-tremor').innerHTML = PERFIS_TREMOR.map((p, i) =>
+    `<button type="button" role="radio" data-perfil="${i}">${p.nome}</button>`).join('');
+  $('#perfis-tremor').addEventListener('click', (e) => {
+    const el = e.target.closest('button');
+    if (!el) return;
+    const { pressaoMs, repeticaoMs } = PERFIS_TREMOR[el.dataset.perfil];
+    aplicarAjustes({ pressaoMs, repeticaoMs });
+  });
+  $('#campo-pressao').addEventListener('input', (e) => aplicarAjustes({ pressaoMs: Number(e.target.value) }));
+  $('#campo-repeticao').addEventListener('input', (e) => aplicarAjustes({ repeticaoMs: Number(e.target.value) }));
 }
 
 const DICAS_BUSCA = {
@@ -637,6 +804,12 @@ async function procurarPlaca() {
   }
 }
 
+async function conectarDemonstracao() {
+  const d = new DispositivoSimulado();
+  await d.conectar();
+  conectar(d);
+}
+
 function conectar(dispositivo) {
   estado.buscaManual = false;
   estado.tentativasBusca = 0;
@@ -668,10 +841,13 @@ function atualizarConexao() {
     $('#bt-detalhe').textContent = d.simulado
       ? `Simulação: nada é gravado de verdade.${tipo ? ` ${tipo}.` : ''}`
       : tipo || `${d.info?.botoes ?? 10} botões${livre ? ` · ${Math.round(livre / 1024)} KB livres` : ''}`;
-    $('#bt-enviar-texto').textContent = d.audioPeloCartao ? 'Enviar frases e volume' : 'Enviar os 10 botões';
+    $('#bt-enviar-texto').textContent = d.audioPeloCartao ? 'Enviar frases e ajustes' : 'Enviar os 10 botões';
     $('#bt-aviso-cartao').hidden = !d.audioPeloCartao;
     $('#campo-volume').value = estado.placa.volume;
     $('#volume-valor').textContent = estado.placa.volume;
+    renderAjustes();
+    $('#ajustes-aviso').hidden = d.aceitaAjustes;
+    $('#perfis-tremor').closest('fieldset').disabled = !d.aceitaAjustes;
   }
   if (estado.selecionado) renderAudio();
 }
@@ -706,6 +882,10 @@ async function iniciar() {
   configurarMapa();
   configurarEditor();
   configurarEnvio();
+  configurarModoTeste({
+    estado, botao, pictoHTML, avisar, banco, conectarDemonstracao,
+    abrirConexao: () => abrirEnvio('bluetooth'),
+  });
 
   const usuario = lerUsuario();
   if (usuario) await abrirPainel(usuario);
