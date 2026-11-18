@@ -17,6 +17,17 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
 
 > **Celular:** microfone, Bluetooth e instalação como app exigem HTTPS (ou `localhost`). Pelo IP da rede local (`http://192.168...`), o app abre, mas essas funções ficam bloqueadas. Para testar tudo no celular, publique a pasta `software/app/` num endereço HTTPS (ex.: GitHub Pages) ou use `chrome://inspect` com encaminhamento de porta via USB.
 
+### Publicação no GitHub Pages
+
+O workflow [.github/workflows/pages.yml](../.github/workflows/pages.yml) publica `software/app/` a cada push na `main` que altere o app. Configuração única, por quem administra o repositório:
+
+1. Em **Settings → Pages → Build and deployment → Source**, escolha **GitHub Actions**.
+2. Faça push para a `main` (ou rode o workflow em **Actions → Publicar app no GitHub Pages → Run workflow**).
+3. O endereço fica em `https://<usuário>.github.io/<repositório>/`. Neste repositório: `https://amabilyh.github.io/Engenheiras-do-amanh-/`.
+4. Login com Google: no Google Cloud Console, adicione `https://amabilyh.github.io` às **Origens JavaScript autorizadas** do ID de cliente.
+
+Com internet, os aparelhos sempre carregam a versão mais nova (o service worker busca na rede primeiro). Ao adicionar ou remover arquivos do app, atualize a lista `ARQUIVOS` e aumente `CACHE` em `app/sw.js`, para a cópia offline ficar completa.
+
 ## Funcionalidades
 
 - **Tela de entrada:**
