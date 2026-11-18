@@ -58,12 +58,12 @@
 
     <div class="entrada-ilustracao" aria-hidden="true">
       <div class="mini-placa">
-        <div class="mini-topo"><span class="mini-falante"></span><span class="mini-led"></span></div>
+        <div class="mini-topo"><b>MNR</b><strong>FalaPlaca</strong><b>♀</b></div>
         <div class="mini-grade">
-          <span style="--cor:#e5484d">🤕</span><span style="--cor:#e5484d">🚽</span><span style="--cor:#e5484d">💧</span>
-          <span style="--cor:#e09a00">😊</span><span style="--cor:#e09a00">😢</span><span style="--cor:#e09a00">😨</span>
-          <span style="--cor:#3e7bfa">🙋</span><i></i><span style="--cor:#3e7bfa">❓</span>
-          <span style="--cor:#1f9d63">👋</span><i></i><span style="--cor:#1f9d63">🙏</span>
+          <i></i><i></i><i></i><i></i><i></i>
+          <span style="--cor:#e2343a"></span><span style="--cor:#f5a00f"></span><span style="--cor:#e9ebee"></span><span style="--cor:#33c24a"></span><span style="--cor:#2e86e3"></span>
+          <i></i><i></i><i></i><i></i><i></i>
+          <span style="--cor:#e2343a"></span><span style="--cor:#f5a00f"></span><span style="--cor:#e9ebee"></span><span style="--cor:#33c24a"></span><span style="--cor:#2e86e3"></span>
         </div>
       </div>
     </div>
@@ -100,26 +100,33 @@
           </div>
         </div>
 
-        <div class="placa" id="placa">
-          <div class="placa-topo">
-            <span class="alto-falante" aria-hidden="true"></span>
-            <span class="placa-nome">FalaPlaca</span>
-            <span class="led" id="led" title="LED de confirmação"></span>
+        <div class="placa-moldura">
+          <div class="placa" id="placa">
+            <span class="furo esquerdo" aria-hidden="true"></span>
+            <span class="furo direito" aria-hidden="true"></span>
+            <div class="placa-topo" aria-hidden="true">
+              <span class="placa-mnr">MNR</span>
+              <span class="placa-nome">FalaPlaca</span>
+              <span class="placa-logo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8.5" r="5"/><path d="M12 13.5V22M8.5 18.5h7M12 2v1.5M17.5 3.5l-1 1M6.5 3.5l1 1"/></svg>
+                <span>Engenheiras<br>do Amanhã</span>
+              </span>
+            </div>
+            <div class="placa-colunas" aria-hidden="true"><span></span><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span></div>
+            <div id="fileiras" class="fileiras"></div>
+            <span class="led" id="led" title="LED de confirmação (acende por 2 s)"></span>
           </div>
-          <div class="placa-colunas" aria-hidden="true"><span></span><span>A</span><span>B</span><span>C</span></div>
-          <div id="fileiras" class="fileiras"></div>
-          <div class="placa-rodape" aria-hidden="true">IFPE · IFMaker</div>
         </div>
 
         <ul class="legenda">
           <li><span class="legenda-marca ok"></span>Com áudio</li>
           <li><span class="legenda-marca falta"></span>Falta gravar</li>
           <li><span class="legenda-marca selecionado"></span>Selecionado</li>
-          <li><span class="legenda-marca vazio"></span>Sem botão</li>
+          <li><span class="legenda-marca tocando"></span>Tocando</li>
         </ul>
 
         <div class="acoes-placa">
-          <button id="btn-abrir-bluetooth" class="btn primario" type="button" data-icone="bluetooth"><span>Enviar por Bluetooth</span></button>
+          <button id="btn-abrir-bluetooth" class="btn primario" type="button" data-icone="bluetooth"><span>Conectar à placa</span></button>
           <button id="btn-abrir-cartao" class="btn secundario" type="button" data-icone="cartao"><span>Salvar no cartão SD</span></button>
           <button id="btn-imprimir" class="btn fantasma" type="button" data-icone="imprimir"><span>Imprimir etiquetas</span></button>
         </div>
@@ -150,14 +157,25 @@
           </header>
 
           <div class="editor-previa">
-            <span class="previa-botao"><span id="previa-icone" class="previa-icone"></span></span>
-            <span id="previa-texto" class="previa-texto"></span>
+            <span class="previa-base">
+              <svg id="previa-forma" class="assento-forma" viewBox="0 0 100 100" aria-hidden="true"><path d=""/></svg>
+              <span class="assento-botao"></span>
+            </span>
+            <div class="previa-info">
+              <span class="previa-etiqueta"><span id="previa-icone"></span><span id="previa-texto"></span></span>
+              <small id="previa-posicao" class="previa-posicao"></small>
+            </div>
           </div>
 
           <label class="campo">
             <span>Frase falada <small id="contador-texto"></small></span>
             <input id="campo-texto" maxlength="40" autocomplete="off" placeholder="Ex.: Preciso de água.">
           </label>
+
+          <fieldset class="campo">
+            <legend>Bloco temático</legend>
+            <div id="grade-blocos" class="grade-blocos" role="radiogroup" aria-label="Bloco temático"></div>
+          </fieldset>
 
           <section class="campo bloco-audio" aria-labelledby="titulo-audio">
             <div class="bloco-audio-topo">
@@ -200,18 +218,18 @@
     </header>
 
     <div class="abas" role="tablist">
-      <button role="tab" type="button" data-aba="bluetooth" data-icone="bluetooth"><span>Bluetooth</span></button>
+      <button role="tab" type="button" data-aba="bluetooth" data-icone="bluetooth"><span>Conectar</span></button>
       <button role="tab" type="button" data-aba="cartao" data-icone="cartao"><span>Cartão SD</span></button>
     </div>
 
     <div class="aba" data-painel="bluetooth" role="tabpanel">
       <div id="bt-desconectado">
-        <p>Grava frases e áudios direto na memória da FalaPlaca, <strong>sem cartão</strong>. Ligue a placa e mantenha-a perto do aparelho.</p>
+        <p>Ligue a placa e mantenha-a perto do aparelho (ou ligue o cabo USB). Depois de conectada uma vez, ela é encontrada sozinha.</p>
         <div class="pilha">
           <button id="bt-conectar" class="btn primario grande" type="button" data-icone="bluetooth"><span>Procurar FalaPlaca</span></button>
-          <button id="bt-demo" class="btn secundario" type="button"><span>Testar com placa de demonstração</span></button>
+          <p id="bt-suporte" class="dica dica-busca" aria-live="polite"></p>
+          <button id="bt-demo" class="btn link" type="button"><span>Testar sem placa (demonstração)</span></button>
         </div>
-        <p id="bt-suporte" class="dica"></p>
       </div>
 
       <div id="bt-conectado" hidden>
@@ -227,7 +245,8 @@
           <span>Volume da placa <small id="volume-valor"></small></span>
           <input id="campo-volume" type="range" min="0" max="30" step="1">
         </label>
-        <button id="bt-enviar" class="btn primario grande" type="button" data-icone="enviar"><span>Enviar os 10 botões</span></button>
+        <button id="bt-enviar" class="btn primario grande" type="button" data-icone="enviar"><span id="bt-enviar-texto">Enviar os 10 botões</span></button>
+        <p id="bt-aviso-cartao" class="dica" hidden>Esta placa toca os áudios do cartão SD: depois de gravar as vozes, use a aba <strong>Cartão SD</strong>. Apertar um botão da placa acende o mesmo botão no mapa.</p>
       </div>
     </div>
 

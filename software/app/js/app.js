@@ -1,8 +1,11 @@
-import { FILEIRAS, COLUNAS, POSICOES, ICONES, TEXTO_MAXIMO, VERSAO_PLACA, placaPadrao, nomeArquivo } from './layout.js';
+import {
+  BLOCOS, ICONES, TEXTO_MAXIMO, corDoBotao, formaDoBotao, migrarPlaca, nomeArquivo,
+} from './layout.js';
 import * as banco from './store.js';
 import { prepararAudio, Gravador, GRAVACAO_MAXIMA_S } from './audio.js';
 import { arquivosDoCartao, podeGravarDireto, gravarNoCartao, baixarZip } from './sdcard.js';
-import { bluetoothDisponivel, conectarBluetooth, DispositivoSimulado } from './bluetooth.js';
+import { DispositivoSimulado } from './protocolo.js';
+import { formasDisponiveis, procurarFalaPlaca, reconectarConhecida } from './conexao.js';
 import { icone, preencherIcones } from './icones.js';
 import { googleConfigurado, prepararBotaoGoogle, sairDoGoogle } from './google.js';
 
@@ -17,6 +20,8 @@ const estado = {
   gravacao: null,         // { gravador, numero, inicio }
   reproducao: null,       // HTMLAudioElement em execução
   enviando: false,
+  buscaManual: false,     // já tentou reconectar sozinho: o próximo toque abre a janela de escolha
+  tentativasBusca: 0,     // buscas canceladas: alterna entre Bluetooth BLE e porta serial
 };
 
 const botao = (numero) => estado.placa.botoes.find((b) => b.numero === numero);
@@ -118,7 +123,7 @@ async function carregarDados() {
   if (estado.placa) return;
   let salva = null;
   try { salva = await banco.carregarPlaca(); } catch { /* sem IndexedDB: usa padrão em memória */ }
-  estado.placa = salva?.versao === VERSAO_PLACA ? salva : placaPadrao();
+  estado.placa = migrarPlaca(salva);
   for (const b of estado.placa.botoes) {
     if (!b.audio) continue;
     const blob = await banco.carregarAudio(b.numero).catch(() => null);
@@ -132,34 +137,23 @@ async function carregarDados() {
 function renderPlaca() {
   const destino = $('#fileiras');
   destino.innerHTML = '';
-  FILEIRAS.forEach((fileira, i) => {
+  for (const fileira of [0, 1]) {
     const el = document.createElement('div');
     el.className = 'fileira';
-    el.style.setProperty('--cor', fileira.cor);
-    el.style.setProperty('--clara', fileira.clara);
-    el.innerHTML = `
-      <button type="button" class="fileira-rotulo" data-fileira="${i}" title="Renomear bloco">
-        <span class="fileira-num">${i + 1}</span><span class="fileira-nome"></span>${icone('lapis')}
-      </button>
-      <div class="fileira-assentos" data-fileira="${i + 1}"></div>`;
-    $('.fileira-nome', el).textContent = estado.placa.fileiras[i].nome;
-
-    const assentos = $('.fileira-assentos', el);
-    COLUNAS.forEach((_, coluna) => {
-      const posicao = POSICOES.find((p) => p.fileira === i && p.coluna === coluna);
-      if (!posicao) {
-        assentos.insertAdjacentHTML('beforeend', '<div class="corredor" aria-hidden="true"></div>');
-        return;
-      }
-      assentos.insertAdjacentHTML('beforeend', `
-        <button type="button" class="assento" data-numero="${posicao.numero}">
-          <span class="assento-botao"><span class="assento-icone"></span></span>
-          <span class="assento-texto"></span>
-          <span class="assento-status">${icone('ok')}</span>
+    el.dataset.fileira = fileira + 1;
+    for (const b of estado.placa.botoes.filter((x) => x.fileira === fileira)) {
+      el.insertAdjacentHTML('beforeend', `
+        <button type="button" class="assento" data-numero="${b.numero}" style="--botao-cor:${corDoBotao(b).cor}">
+          <span class="assento-etiqueta"><span class="assento-icone"></span><span class="assento-texto"></span></span>
+          <span class="assento-base">
+            <svg class="assento-forma" viewBox="0 0 100 100" aria-hidden="true"><path d="${formaDoBotao(b).d}"/></svg>
+            <span class="assento-botao"></span>
+            <span class="assento-status">${icone('ok')}</span>
+          </span>
         </button>`);
-    });
+    }
     destino.append(el);
-  });
+  }
   estado.placa.botoes.forEach((b) => atualizarAssento(b.numero));
   atualizarProgresso();
 }
@@ -168,13 +162,14 @@ function atualizarAssento(numero) {
   const b = botao(numero);
   const el = $(`.assento[data-numero="${numero}"]`);
   if (!el) return;
+  el.style.setProperty('--cor', BLOCOS[b.bloco].cor);
   $('.assento-icone', el).textContent = b.icone || '❔';
   $('.assento-texto', el).textContent = b.texto || 'Sem frase';
   el.classList.toggle('sem-audio', !b.audio);
   el.classList.toggle('sem-texto', !b.texto);
   el.setAttribute('aria-pressed', String(estado.selecionado === numero));
   el.setAttribute('aria-label',
-    `Botão ${b.assento}: ${b.texto || 'sem frase'}. ${b.audio ? 'Com áudio' : 'Falta gravar o áudio'}.`);
+    `Botão ${b.assento}, ${corDoBotao(b).nome}: ${b.texto || 'sem frase'}. ${b.audio ? 'Com áudio' : 'Falta gravar o áudio'}.`);
 }
 
 function atualizarProgresso() {
@@ -187,18 +182,7 @@ function atualizarProgresso() {
 function configurarMapa() {
   $('#fileiras').addEventListener('click', (e) => {
     const assento = e.target.closest('.assento');
-    if (assento) return selecionar(Number(assento.dataset.numero));
-
-    const rotulo = e.target.closest('.fileira-rotulo');
-    if (rotulo) {
-      const i = Number(rotulo.dataset.fileira);
-      const nome = prompt('Nome do bloco temático:', estado.placa.fileiras[i].nome)?.trim();
-      if (!nome) return;
-      estado.placa.fileiras[i].nome = nome.slice(0, 20);
-      salvarPlaca();
-      renderPlaca();
-      renderEditor();
-    }
+    if (assento) selecionar(Number(assento.dataset.numero));
   });
 
   $('#btn-imprimir').addEventListener('click', () => window.print());
@@ -212,7 +196,9 @@ function acenderLed(numero) {
 
   const assento = $(`.assento[data-numero="${numero}"]`);
   assento?.classList.add('tocando');
-  setTimeout(() => assento?.classList.remove('tocando'), 180);
+  if (!assento) return;
+  clearTimeout(assento.timerTocando);   // o botão fica aceso como o LED, por 2 s
+  assento.timerTocando = setTimeout(() => assento.classList.remove('tocando'), 2000);
 }
 
 // ---------------------------------------------------------------- editor
@@ -244,20 +230,27 @@ function renderEditor() {
   if (!numero) return;
 
   const b = botao(numero);
-  const fileira = FILEIRAS[b.fileira];
+  const bloco = BLOCOS[b.bloco];
   const editor = $('#editor');
-  editor.style.setProperty('--cor', fileira.cor);
-  editor.style.setProperty('--clara', fileira.clara);
+  editor.style.setProperty('--cor', bloco.cor);
+  editor.style.setProperty('--clara', bloco.clara);
+  editor.style.setProperty('--botao-cor', corDoBotao(b).cor);
 
   $('#editor-assento').textContent = b.assento;
-  $('#editor-titulo').textContent = `Botão ${numero} · ${estado.placa.fileiras[b.fileira].nome}`;
-  $('#editor-arquivo').textContent = `Arquivo no cartão: 01/${nomeArquivo(numero)}`;
+  $('#editor-titulo').textContent = `Botão ${numero} · ${bloco.nome}`;
+  $('#previa-posicao').textContent = `Botão ${corDoBotao(b).nome} · ${formaDoBotao(b).nome}`;
+  $('#previa-forma path').setAttribute('d', formaDoBotao(b).d);
+  $('#editor-arquivo').textContent = `Cartão: 01/${nomeArquivo(numero)}`;
   $('#previa-icone').textContent = b.icone || '❔';
   $('#previa-texto').textContent = b.texto || 'Sem frase';
 
   const campo = $('#campo-texto');
   if (document.activeElement !== campo) campo.value = b.texto;
   $('#contador-texto').textContent = `${campo.value.length}/${TEXTO_MAXIMO}`;
+
+  $$('#grade-blocos button').forEach((el) => {
+    el.setAttribute('aria-checked', String(Number(el.dataset.bloco) === b.bloco));
+  });
 
   $$('#grade-icones button').forEach((el) => {
     el.setAttribute('aria-selected', String(el.dataset.pictograma === b.icone));
@@ -281,7 +274,7 @@ function renderAudio() {
   }
   $('#btn-ouvir').disabled = !b.audio;
   $('#btn-remover-audio').disabled = !b.audio;
-  $('#btn-tocar-placa').hidden = !(estado.dispositivo && b.audio);
+  $('#btn-tocar-placa').hidden = !(estado.dispositivo && (b.audio || estado.dispositivo.audioPeloCartao));
   desenharOnda(b.audio?.picos);
 }
 
@@ -318,6 +311,18 @@ function configurarEditor() {
     const el = e.target.closest('button');
     if (!el) return;
     botao(estado.selecionado).icone = el.dataset.pictograma;
+    salvarPlaca();
+    atualizarAssento(estado.selecionado);
+    renderEditor();
+  });
+
+  const blocos = $('#grade-blocos');
+  blocos.innerHTML = BLOCOS.map((bl, i) =>
+    `<button type="button" role="radio" data-bloco="${i}" style="--cor-bloco:${bl.cor}"><span></span>${bl.nome}</button>`).join('');
+  blocos.addEventListener('click', (e) => {
+    const el = e.target.closest('button');
+    if (!el) return;
+    botao(estado.selecionado).bloco = Number(el.dataset.bloco);
     salvarPlaca();
     atualizarAssento(estado.selecionado);
     renderEditor();
@@ -481,8 +486,7 @@ function trocarAba(aba) {
 }
 
 function linhaEnvio(b, detalhe, classe = '') {
-  const fileira = FILEIRAS[b.fileira];
-  return `<li data-numero="${b.numero}" style="--cor:${fileira.cor}">
+  return `<li data-numero="${b.numero}" style="--cor:${BLOCOS[b.bloco].cor}">
     <span class="tag">${b.assento}</span>
     <span class="nome"><b>${b.icone} ${escapar(b.texto || 'Sem frase')}</b><small>${detalhe}</small></span>
     <span class="estado ${classe}"></span>
@@ -558,13 +562,13 @@ function configurarEnvio() {
     avisar('Arquivo .zip baixado.', 'ok');
   }));
 
-  // Bluetooth
-  $('#bt-conectar').addEventListener('click', (e) => travarEnvio(e.currentTarget, () => conectar(conectarBluetooth)));
-  $('#bt-demo').addEventListener('click', (e) => travarEnvio(e.currentTarget, () => conectar(async () => {
+  // Conexão direta com a placa (Bluetooth BLE, HC-05 ou cabo USB, escolhidos automaticamente)
+  $('#bt-conectar').addEventListener('click', (e) => travarEnvio(e.currentTarget, procurarPlaca));
+  $('#bt-demo').addEventListener('click', (e) => travarEnvio(e.currentTarget, async () => {
     const d = new DispositivoSimulado();
     await d.conectar();
-    return d;
-  })));
+    conectar(d);
+  }));
   $('#bt-desconectar').addEventListener('click', () => estado.dispositivo?.desconectar());
 
   const volume = $('#campo-volume');
@@ -577,25 +581,66 @@ function configurarEnvio() {
 
   $('#bt-enviar').addEventListener('click', (e) => travarEnvio(e.currentTarget, async () => {
     const lista = $('#lista-envio');
-    lista.innerHTML = estado.placa.botoes.map((b) => linhaEnvio(b, b.audio ? `${b.audio.duracao.toFixed(1)} s de áudio` : 'sem áudio')).join('');
+    const detalhe = (b) => {
+      if (estado.dispositivo.audioPeloCartao) return `voz: 01/${nomeArquivo(b.numero)} no cartão SD`;
+      return b.audio ? `${b.audio.duracao.toFixed(1)} s de áudio` : 'sem áudio';
+    };
+    lista.innerHTML = estado.placa.botoes.map((b) => linhaEnvio(b, detalhe(b))).join('');
     await estado.dispositivo.enviar(estado.placa, estado.audios, (numero, etapa, fracao) => {
       if (etapa === 'enviando') marcarLinha(numero, `${Math.round(fracao * 100)}%`, '', fracao);
       if (etapa === 'ok') marcarLinha(numero, 'enviado', 'ok', 1);
       if (etapa === 'sem-audio') marcarLinha(numero, 'só texto', 'falta');
+      if (etapa === 'cartao') marcarLinha(numero, 'frase enviada', 'ok', 1);
     });
-    avisar('Placa atualizada! Já pode testar os botões.', 'ok');
+    avisar(estado.dispositivo.audioPeloCartao
+      ? 'Frases e volume enviados! As vozes vão pelo cartão SD.'
+      : 'Placa atualizada! Já pode testar os botões.', 'ok');
   }));
 
-  bluetoothDisponivel().then((ok) => {
-    $('#bt-suporte').textContent = ok
-      ? 'Requer a FalaPlaca com Bluetooth (versão ESP32). Funciona no Chrome/Edge para Android, Windows, macOS e Linux.'
-      : 'Este navegador não oferece Bluetooth Web (iPhone/iPad, Firefox e Safari ainda não suportam). Use o Chrome no Android ou no computador — ou teste com a placa de demonstração.';
-    $('#bt-conectar').disabled = !ok;
-  });
+  const formas = formasDisponiveis();
+  $('#bt-conectar').disabled = !formas.length;
+  if (!formas.length) {
+    dicaBusca('Este navegador não consegue se conectar à placa (iPhone, iPad, Safari e Firefox ainda não permitem). Use o Chrome ou o Edge — ou teste sem placa.');
+  }
 }
 
-async function conectar(criarDispositivo) {
-  const dispositivo = await criarDispositivo();
+const DICAS_BUSCA = {
+  bluetooth: 'Não apareceu? Toque em Procurar de novo: vamos procurar pelo Bluetooth (módulos BLE).',
+  serial: 'Não apareceu? Toque em Procurar de novo: vamos procurar placas ligadas por Bluetooth HC-05 ou cabo USB.',
+};
+
+function dicaBusca(texto) {
+  $('#bt-suporte').textContent = texto;
+}
+
+// Um só botão para todas as formas de conexão (ver js/conexao.js).
+async function procurarPlaca() {
+  if (!estado.buscaManual) {
+    dicaBusca('Procurando placas já conectadas antes…');
+    const conhecida = await reconectarConhecida();
+    if (conhecida) return conectar(conhecida);
+    estado.buscaManual = true;
+    // A janela de escolha do navegador só abre logo após um toque: se demorou, pede outro.
+    if (navigator.userActivation && !navigator.userActivation.isActive) {
+      return dicaBusca('Nenhuma placa conhecida respondeu. Toque em Procurar FalaPlaca de novo para escolher a placa.');
+    }
+  }
+  dicaBusca('');
+  try {
+    conectar(await procurarFalaPlaca(estado.tentativasBusca));
+  } catch (err) {
+    if (err.name !== 'NotFoundError' && err.name !== 'AbortError') throw err;
+    // Cancelou ou não achou: o próximo toque tenta a outra forma de conexão.
+    estado.tentativasBusca += 1;
+    const formas = formasDisponiveis();
+    if (formas.length > 1) dicaBusca(DICAS_BUSCA[formas[estado.tentativasBusca % formas.length]]);
+  }
+}
+
+function conectar(dispositivo) {
+  estado.buscaManual = false;
+  estado.tentativasBusca = 0;
+  dicaBusca('');
   dispositivo.aoDesconectar(() => {
     if (estado.dispositivo !== dispositivo) return;
     estado.dispositivo = null;
@@ -619,9 +664,12 @@ function atualizarConexao() {
   if (d) {
     $('#bt-nome').textContent = d.nome;
     const livre = Number(d.info?.livre);
+    const tipo = d.audioPeloCartao ? `Arduino ${d.info?.placa === 'uno' ? 'UNO' : 'Mega'} · áudios pelo cartão SD` : '';
     $('#bt-detalhe').textContent = d.simulado
-      ? 'Simulação: nada é gravado de verdade.'
-      : `${d.info?.botoes ?? 10} botões${livre ? ` · ${Math.round(livre / 1024)} KB livres` : ''}`;
+      ? `Simulação: nada é gravado de verdade.${tipo ? ` ${tipo}.` : ''}`
+      : tipo || `${d.info?.botoes ?? 10} botões${livre ? ` · ${Math.round(livre / 1024)} KB livres` : ''}`;
+    $('#bt-enviar-texto').textContent = d.audioPeloCartao ? 'Enviar frases e volume' : 'Enviar os 10 botões';
+    $('#bt-aviso-cartao').hidden = !d.audioPeloCartao;
     $('#campo-volume').value = estado.placa.volume;
     $('#volume-valor').textContent = estado.placa.volume;
   }

@@ -22,8 +22,12 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
 - **Tela de entrada:**
   - **Continuar com o Google:** botão oficial do Google; o app usa o nome, o e-mail e a foto da conta (ver configuração abaixo);
   - **Entrar com nome:** nome, e-mail e senha, **ainda sem validação**; o nome é guardado só para a saudação.
-- **Mapa da placa:** reprodução visual da prancheta de MDF, no estilo de um mapa de assentos de avião. As fileiras são os blocos temáticos (Saúde, Emoções, Escola, Social), as colunas são A–C e cada botão tem um código (1A, 3C…). A legenda mostra com áudio, falta gravar, selecionado e sem botão. O LED virtual acende por 2 s ao tocar uma frase, como na placa real.
-- **Editor do botão:** frase de até 40 caracteres, grade de pictogramas e seção de voz.
+- **Mapa da placa:** reprodução do protótipo físico: MDF claro na horizontal, gravações "MNR", "FalaPlaca" e "Engenheiras do Amanhã", e 2 fileiras de 5 botões arcade, com uma cor por coluna (vermelho, laranja, branco, verde, azul).
+  - Cada botão aparece sobre a forma gravada a laser: coração, estrela, triângulo, quadrado e cruz na fileira 1, losangos na fileira 2.
+  - Acima de cada botão fica a etiqueta com o pictograma e a frase, e uma faixa colorida indica o bloco temático.
+  - No estilo de um mapa de assentos de avião, as fileiras são 1–2 e as colunas A–E; cada botão tem um código (1A, 2C…).
+  - A legenda mostra com áudio, falta gravar, selecionado e tocando. Ao tocar uma frase, o botão e o LED acendem por 2 s, como na placa real.
+- **Editor do botão:** prévia do botão com sua cor e forma, frase de até 40 caracteres, bloco temático (Saúde, Emoções, Escola, Social), grade de pictogramas e seção de voz.
   - gravar pelo microfone (até 8 s), enviar um arquivo de áudio, ouvir e remover;
   - prévia com voz sintética do navegador;
   - setas para ir de botão em botão, como quem percorre os assentos.
@@ -31,7 +35,7 @@ Abra `http://localhost:5173`. O terminal também mostra o endereço na rede loca
 - **Salvar no cartão SD:**
   - no Chrome/Edge do computador, grava direto no cartão (`/01/001.wav` … `/01/010.wav` + `falaplaca.json`) e remove versões antigas com o mesmo número;
   - nos demais navegadores, baixa um `.zip` com a mesma estrutura.
-- **Enviar por Bluetooth:** grava frases, áudios e volume direto na memória da placa, **sem cartão** (ver requisito de hardware abaixo). Há uma **placa de demonstração** para testar o fluxo sem hardware.
+- **Conectar à placa:** um único botão, **Procurar FalaPlaca**, para qualquer forma de ligação (ver abaixo). Com a placa conectada, o app envia frases e volume, toca qualquer botão e acende no mapa o botão apertado na placa. No Arduino, os áudios continuam indo pelo cartão SD; na futura FalaPlaca ESP32, vão junto, **sem cartão**. O link **Testar sem placa** abre uma demonstração.
 - **Imprimir etiquetas:** imprime só a placa, para recortar os pictogramas e as frases.
 - **Offline:** os dados ficam no próprio aparelho (IndexedDB), e o service worker guarda o app para abrir sem internet.
 
@@ -51,9 +55,48 @@ Para o login com Google funcionar no celular, o app precisa estar publicado em H
 
 **Segurança:** como o protótipo não tem servidor, o token do Google é apenas lido no navegador e **não é verificado**. Isso basta para personalizar a interface, mas não protege dados. Quando houver backend (por exemplo, para sincronizar placas entre aparelhos), ele deve validar o token do Google antes de aceitar qualquer pedido.
 
+## Conexão com a placa
+
+O app tem um único botão, **Procurar FalaPlaca**, e descobre sozinho como a placa está ligada:
+
+| Ligação | Placa | API do navegador | Onde funciona |
+| :-- | :-- | :-- | :-- |
+| Módulo **BLE** (HM-10, AT-09/BT05, HC-08, JDY-08) | Mega (`Serial2`) | Web Bluetooth | Chrome/Edge no Android, Windows, macOS e Linux |
+| Módulo **HC-05 / HC-06** (Bluetooth clássico) | Mega (`Serial2`) | Web Serial | Chrome/Edge no computador; no Android, depende da versão do Chrome (a confirmar) |
+| **Cabo USB** | UNO ou Mega | Web Serial | Chrome/Edge no computador |
+
+iPhone, iPad, Safari e Firefox não têm nenhuma das duas APIs; nesses aparelhos, use o cartão SD.
+
+Como o botão funciona:
+
+1. **Placa já usada antes:** o app tenta as conexões já autorizadas e reconecta sem abrir janela nenhuma. Pelo cabo USB, abrir a porta reinicia o Arduino, então o app repete o `HELLO` a cada segundo até a placa responder.
+2. **Primeira vez:** o navegador mostra Bluetooth BLE e portas seriais em janelas de escolha separadas. O toque abre a janela do Bluetooth; se a professora cancelar porque a placa não apareceu, o próximo toque no mesmo botão abre a das portas seriais (HC-05 e cabo USB), com uma dica curta. Se a reconexão automática demorar mais que a janela de tempo que o navegador dá a um toque (cerca de 5 s), o app pede mais um toque.
+
+O código está em [app/js/conexao.js](app/js/conexao.js) (busca), [app/js/bluetooth.js](app/js/bluetooth.js), [app/js/serial.js](app/js/serial.js) e [app/js/protocolo.js](app/js/protocolo.js) (comandos comuns).
+
+**Preparo do módulo Bluetooth (uma vez):**
+
+- **BLE (HM-10, AT-09…):** renomeie o módulo com o comando AT `AT+NAMEFalaPlaca` (alguns modelos pedem `AT+NAME=FalaPlaca`). Sem renomear, o app ainda encontra módulos com os nomes de fábrica `HMSoft`, `BT05`, `HC-08` e `JDY…`.
+- **HC-05:** pareie o módulo nas configurações de Bluetooth do computador (senha padrão `1234` ou `0000`); ele passa a aparecer como porta serial ("Serial padrão por link Bluetooth" no Windows). Para trocar o nome, use `AT+NAME=FalaPlaca` no modo AT do módulo.
+
+Os comandos AT podem ser enviados pelo Monitor Serial do Arduino IDE, com um sketch de passagem, ou por um adaptador USB-serial. O firmware fala com o módulo na `Serial2` do Mega, a 9600 baud, que é a velocidade padrão do HM-10 e do HC-05 (ligações em [docs/contexto](../docs/contexto/README.md#ligações-sketch-principal)). O UNO não tem uma segunda serial livre: nele, a conexão com o app é pelo cabo USB.
+
+O que funciona por qualquer uma dessas ligações:
+
+| Ação | Comando | Na placa |
+| :-- | :-- | :-- |
+| Identificar | `HELLO` → `FALAPLACA v1 placa=mega audio=sd botoes=10` | O app passa a enviar só frases e volume |
+| Volume | `VOL <0-30>` → `OK` | Ajusta o DFPlayer e guarda na EEPROM (vale após religar) |
+| Frase | `TXT <n> <frase>` → `OK` | Guarda a frase na EEPROM, como referência |
+| Testar | `PLAY <n>` → `OK` | Toca o botão *n* e acende o LED |
+| Botão apertado | a placa envia `BTN <n>` | O app acende o mesmo botão no mapa |
+| Áudio | `AUD …` → `ERR audio pelo cartao SD` | Não suportado: use a aba Cartão SD |
+
+Os comandos são linhas de texto terminadas em `\n`. No módulo BLE, o app divide cada linha em pacotes de até 20 bytes (limite desses módulos). Em todas as ligações, junta as respostas que chegam em pedaços e ignora as linhas de diagnóstico da placa (ex.: `Tocando botao 3`, enviada pela USB).
+
 ## Bluetooth sem cartão: requisito de hardware
 
-A FalaPlaca atual (Arduino + DFPlayer Mini) **não consegue** receber áudio por Bluetooth:
+A FalaPlaca atual (Arduino + DFPlayer Mini) **não consegue** receber áudio por nenhuma dessas conexões:
 
 - o DFPlayer só toca o que está no cartão e não permite gravar nele pela serial;
 - o Arduino UNO tem 32 KB de flash, pouco para guardar 10 frases.
@@ -68,7 +111,9 @@ O app já implementa o lado do celular. O firmware ESP32 ainda precisa ser escri
 
 Navegadores com Web Bluetooth: Chrome e Edge no Android, Windows, macOS e Linux. iPhone/iPad, Safari e Firefox ainda não suportam; nesses aparelhos, use o cartão SD.
 
-### Protocolo BLE (v1)
+### Protocolo BLE da FalaPlaca ESP32 (v1)
+
+Os mesmos comandos de texto da tabela do Mega, num serviço próprio com características separadas para comandos, dados de áudio e respostas:
 
 | Característica | UUID | Propriedades | Uso |
 | :-- | :-- | :-- | :-- |

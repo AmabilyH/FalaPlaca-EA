@@ -1,20 +1,24 @@
-// Cadastro da placa por Bluetooth Low Energy (Web Bluetooth).
-// O protocolo está documentado em software/README.md. Ele pressupõe a versão da FalaPlaca
-// com ESP32, que guarda os áudios na memória flash interna, sem cartão.
+// Conexão por Bluetooth Low Energy (Web Bluetooth). Dois tipos de placa:
+// - Arduino + módulo BLE serial (HM-10, AT-09, HC-08: serviço FFE0). Recebe frases e
+//   volume e avisa os botões apertados; os áudios continuam no cartão SD do DFPlayer.
+// - FalaPlaca com ESP32 (futura), com serviço próprio, que guarda também os áudios, sem cartão.
 
 import { crc32 } from './zip.js';
-import { paraPcm8 } from './audio.js';
+import { DispositivoTexto, TAXA_AUDIO_PLACA, esperar } from './protocolo.js';
 
 export const UUID = {
   servico: 'f1a1a000-6c61-4e50-8d1a-46616c61506c',
   controle: 'f1a1a001-6c61-4e50-8d1a-46616c61506c',
   dados: 'f1a1a002-6c61-4e50-8d1a-46616c61506c',
   status: 'f1a1a003-6c61-4e50-8d1a-46616c61506c',
+  // UART transparente dos módulos HM-10 e compatíveis
+  serialServico: '0000ffe0-0000-1000-8000-00805f9b34fb',
+  serialCaracteristica: '0000ffe1-0000-1000-8000-00805f9b34fb',
 };
-export const TAXA_BLUETOOTH = 8000;
 const TAMANHO_PACOTE = 180;
+const TAMANHO_PACOTE_SERIAL = 20;          // limite de escrita dos módulos HM-10
 
-const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+export const bluetoothExiste = () => Boolean(navigator.bluetooth);
 
 export async function bluetoothDisponivel() {
   if (!navigator.bluetooth) return false;
@@ -25,100 +29,59 @@ export async function bluetoothDisponivel() {
   }
 }
 
-class Dispositivo {
-  ouvintesDesconexao = [];
-  ouvintesBotao = [];
-
-  aoDesconectar(callback) { this.ouvintesDesconexao.push(callback); }
-  aoAcionarBotao(callback) { this.ouvintesBotao.push(callback); }
-  definirVolume(volume) { return this.comando(`VOL ${volume}`); }
-  tocar(numero) { return this.comando(`PLAY ${numero}`); }
-
-  // aoProgresso(numero, etapa, fracao): etapa = 'enviando' | 'ok' | 'sem-audio'
-  async enviar(placa, audios, aoProgresso) {
-    await this.comando(`VOL ${placa.volume}`);
-    for (const botao of placa.botoes) {
-      aoProgresso(botao.numero, 'enviando', 0);
-      await this.comando(`TXT ${botao.numero} ${botao.texto}`);
-      const blob = botao.audio && audios.get(botao.numero);
-      if (!blob) {
-        await this.comando(`DEL ${botao.numero}`);
-        aoProgresso(botao.numero, 'sem-audio', 1);
-        continue;
-      }
-      const pcm = await paraPcm8(blob, TAXA_BLUETOOTH);
-      await this.enviarAudio(botao.numero, pcm, (f) => aoProgresso(botao.numero, 'enviando', f));
-      aoProgresso(botao.numero, 'ok', 1);
-    }
-    await this.comando('SALVAR', 'OK', 15000);
-  }
-}
-
-class DispositivoBluetooth extends Dispositivo {
-  simulado = false;
-  esperas = [];
-
+class DispositivoBluetooth extends DispositivoTexto {
   constructor(aparelho) {
     super();
     this.aparelho = aparelho;
     this.nome = aparelho.name || 'FalaPlaca';
-    aparelho.addEventListener('gattserverdisconnected', () => {
-      this.ouvintesDesconexao.forEach((cb) => cb());
-    });
+    aparelho.addEventListener('gattserverdisconnected', () => this.desconectou());
   }
 
   async conectar() {
     const servidor = await this.aparelho.gatt.connect();
-    const servico = await servidor.getPrimaryService(UUID.servico);
-    this.controle = await servico.getCharacteristic(UUID.controle);
-    this.dados = await servico.getCharacteristic(UUID.dados);
-    this.status = await servico.getCharacteristic(UUID.status);
+    const servico = await servidor.getPrimaryService(UUID.servico).catch(() => null);
+    if (servico) {
+      this.controle = await servico.getCharacteristic(UUID.controle);
+      this.dados = await servico.getCharacteristic(UUID.dados);
+      this.status = await servico.getCharacteristic(UUID.status);
+      this.serial = false;
+    } else {
+      // Módulo BLE serial ligado ao Arduino: uma característica para enviar e receber.
+      const uart = await servidor.getPrimaryService(UUID.serialServico).catch(() => {
+        throw new Error('Este aparelho não é uma FalaPlaca: não tem o serviço Bluetooth esperado.');
+      });
+      this.controle = this.status = await uart.getCharacteristic(UUID.serialCaracteristica);
+      this.serial = true;
+    }
     await this.status.startNotifications();
     this.status.addEventListener('characteristicvaluechanged', (e) => {
-      this.receber(new TextDecoder().decode(e.target.value).trim());
+      const texto = new TextDecoder().decode(e.target.value);
+      // Na serial as respostas chegam em pedaços de até 20 bytes.
+      if (this.serial) this.receberPedaco(texto);
+      else this.receber(texto.trim());
     });
-    const resposta = await this.comando('HELLO', 'FALAPLACA');
-    this.info = Object.fromEntries(
-      resposta.split(' ').filter((p) => p.includes('=')).map((p) => p.split('=')),
-    );
+    await this.identificar().catch(() => {
+      throw new Error('O módulo Bluetooth conectou, mas a placa não respondeu. Confira os fios TX/RX e se o firmware da FalaPlaca está gravado.');
+    });
   }
 
-  receber(mensagem) {
-    if (mensagem.startsWith('BTN ')) {
-      const numero = Number(mensagem.slice(4));
-      this.ouvintesBotao.forEach((cb) => cb(numero));
-      return;
+  async escrever(texto) {
+    if (!this.serial) return this.controle.writeValueWithResponse(new TextEncoder().encode(texto));
+    const bytes = new TextEncoder().encode(`${texto}\n`);
+    const semResposta = this.controle.properties.writeWithoutResponse;
+    for (let i = 0; i < bytes.length; i += TAMANHO_PACOTE_SERIAL) {
+      const pedaco = bytes.subarray(i, i + TAMANHO_PACOTE_SERIAL);
+      if (semResposta) {
+        await this.controle.writeValueWithoutResponse(pedaco);
+        await esperar(15);                 // dá tempo de o módulo repassar a 9600 baud
+      } else {
+        await this.controle.writeValueWithResponse(pedaco);
+      }
     }
-    const erro = mensagem.startsWith('ERR');
-    const i = this.esperas.findIndex((e) => erro || mensagem.startsWith(e.prefixo));
-    if (i < 0) return;
-    const [espera] = this.esperas.splice(i, 1);
-    if (erro) espera.rejeitar(new Error(`A placa recusou o comando: ${mensagem.slice(4)}`));
-    else espera.resolver(mensagem);
-  }
-
-  aguardar(prefixo, ms) {
-    return new Promise((resolver, rejeitar) => {
-      const espera = { prefixo, resolver, rejeitar };
-      this.esperas.push(espera);
-      setTimeout(() => {
-        const i = this.esperas.indexOf(espera);
-        if (i >= 0) {
-          this.esperas.splice(i, 1);
-          rejeitar(new Error('A placa não respondeu a tempo.'));
-        }
-      }, ms);
-    });
-  }
-
-  async comando(texto, prefixoResposta = 'OK', ms = 5000) {
-    const resposta = this.aguardar(prefixoResposta, ms);
-    await this.controle.writeValueWithResponse(new TextEncoder().encode(texto));
-    return resposta;
   }
 
   async enviarAudio(numero, pcm, aoProgresso) {
-    await this.comando(`AUD ${numero} ${pcm.length} ${TAXA_BLUETOOTH}`);
+    await this.comando(`AUD ${numero} ${pcm.length} ${TAXA_AUDIO_PLACA}`);
     for (let i = 0; i < pcm.length; i += TAMANHO_PACOTE) {
       await this.dados.writeValueWithResponse(pcm.subarray(i, i + TAMANHO_PACOTE));
       aoProgresso(Math.min(1, (i + TAMANHO_PACOTE) / pcm.length));
@@ -133,46 +96,38 @@ class DispositivoBluetooth extends Dispositivo {
 }
 
 export async function conectarBluetooth() {
-  if (!navigator.bluetooth) {
-    throw new Error('Este navegador não tem Bluetooth. Use Chrome ou Edge no Android ou no computador, ou o modo demonstração.');
-  }
   const aparelho = await navigator.bluetooth.requestDevice({
-    filters: [{ services: [UUID.servico] }, { namePrefix: 'FalaPlaca' }],
-    optionalServices: [UUID.servico],
+    filters: [
+      { services: [UUID.servico] },
+      { services: [UUID.serialServico] },  // módulos HM-10 e compatíveis
+      { namePrefix: 'FalaPlaca' },
+      // nomes de fábrica, para módulos que não anunciam o serviço FFE0
+      { namePrefix: 'HMSoft' },
+      { namePrefix: 'BT05' },
+      { namePrefix: 'HC-08' },
+      { namePrefix: 'JDY' },
+    ],
+    optionalServices: [UUID.servico, UUID.serialServico],
   });
   const dispositivo = new DispositivoBluetooth(aparelho);
   await dispositivo.conectar();
   return dispositivo;
 }
 
-// Placa virtual: permite testar todo o fluxo sem hardware.
-export class DispositivoSimulado extends Dispositivo {
-  simulado = true;
-  nome = 'FalaPlaca demonstração';
-  info = { botoes: '10', livre: '1200000' };
-
-  async conectar() {
-    await esperar(700);
-  }
-
-  async comando(texto) {
-    await esperar(60);
-    if (texto.startsWith('PLAY ')) {
-      const numero = Number(texto.slice(5));
-      this.ouvintesBotao.forEach((cb) => cb(numero));
-    }
-    return 'OK';
-  }
-
-  async enviarAudio(numero, pcm, aoProgresso) {
-    const passos = Math.max(4, Math.ceil(pcm.length / 4000));
-    for (let i = 1; i <= passos; i++) {
-      await esperar(90);
-      aoProgresso(i / passos);
+// Aparelhos já autorizados antes (só em navegadores com navigator.bluetooth.getDevices).
+export async function reconectarBluetooth() {
+  if (!navigator.bluetooth?.getDevices) return null;
+  for (const aparelho of await navigator.bluetooth.getDevices()) {
+    const dispositivo = new DispositivoBluetooth(aparelho);
+    try {
+      await Promise.race([
+        dispositivo.conectar(),
+        esperar(5000).then(() => { throw new Error('fora de alcance'); }),
+      ]);
+      return dispositivo;
+    } catch {
+      aparelho.gatt?.disconnect();
     }
   }
-
-  desconectar() {
-    this.ouvintesDesconexao.forEach((cb) => cb());
-  }
+  return null;
 }

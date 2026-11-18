@@ -1,7 +1,7 @@
 // Exportação para o cartão MicroSD do DFPlayer: /01/001.wav ... /01/010.wav + falaplaca.json.
 
 import { criarZip } from './zip.js';
-import { nomeArquivo } from './layout.js';
+import { BLOCOS, corDoBotao, formaDoBotao, nomeArquivo } from './layout.js';
 
 export const podeGravarDireto = () => 'showDirectoryPicker' in window;
 
@@ -21,7 +21,9 @@ function manifesto(placa) {
     botoes: placa.botoes.map((b) => ({
       numero: b.numero,
       assento: b.assento,
-      bloco: placa.fileiras[b.fileira].nome,
+      bloco: BLOCOS[b.bloco].nome,
+      cor: corDoBotao(b).nome,
+      forma: formaDoBotao(b).nome,
       texto: b.texto,
       icone: b.icone,
       arquivo: b.audio ? `01/${nomeArquivo(b.numero)}` : null,

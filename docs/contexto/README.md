@@ -12,7 +12,7 @@ Os dados técnicos completos do artigo submetido à MNR 2026 estão em [artigo-m
 
 | Item | Requisito |
 | :-- | :-- |
-| Entrada | 10 botões de 25 mm na grade 3×4 do corte a laser, com as posições 3B e 4B vazias |
+| Entrada | 10 botões arcade em 2 fileiras × 5, uma cor por coluna, sobre formas gravadas a laser |
 | Mapeamento | Botão *n* → arquivo *n* no cartão MicroSD (`/01/00n`) |
 | Áudio | DFPlayer Mini + alto-falante 0,5 W |
 | Feedback | LED aceso por 2 s após cada acionamento |
@@ -30,20 +30,28 @@ Saíram as duas frases menos ligadas a necessidades imediatas:
 
 As necessidades fisiológicas, as emoções, o pedido de ajuda, a sinalização de não entendimento, a saudação e o agradecimento foram mantidos.
 
-| Botão | Posição | Bloco | Frase | Pino |
-| :-: | :-: | :-- | :-- | :-: |
-| 1 | 1A | Saúde | "Estou com dor." | D2 |
-| 2 | 1B | Saúde | "Preciso ir ao banheiro." | D3 |
-| 3 | 1C | Saúde | "Preciso de água." | D4 |
-| 4 | 2A | Emoções | "Estou feliz." | D5 |
-| 5 | 2B | Emoções | "Estou triste." | D6 |
-| 6 | 2C | Emoções | "Estou com medo." | D7 |
-| 7 | 3A | Escola | "Preciso de ajuda." | D8 |
-| 8 | 3C | Escola | "Não entendi." | D9 |
-| 9 | 4A | Social | "Olá." | A0 |
-| 10 | 4C | Social | "Obrigado(a)." | A1 |
+## Layout do protótipo físico
 
-Manter as posições vazias em 3B e 4B permite aproveitar o arquivo de corte a laser da grade 3×4: basta não cortar esses dois furos. O espaço extra também afasta os botões, o que ajuda estudantes com dificuldade motora.
+A placa construída é de MDF claro na horizontal. A gravação a laser traz "MNR" à esquerda, "FalaPlaca" no centro e o logo "Engenheiras do Amanhã" à direita, com dois furos de fixação nos cantos superiores. Os 10 botões arcade ficam em 2 fileiras de 5:
+
+- **cor por coluna:** A vermelho, B laranja, C branco, D verde, E azul;
+- **forma gravada atrás do botão:** na fileira 1, coração, estrela, triângulo, quadrado e cruz; na fileira 2, losangos;
+- **etiqueta:** um retângulo gravado acima de cada botão recebe a etiqueta com pictograma e frase (o app imprime as etiquetas).
+
+| Botão | Posição | Cor | Forma | Bloco | Frase | Pino |
+| :-: | :-: | :-- | :-- | :-- | :-- | :-: |
+| 1 | 1A | vermelho | coração | Saúde | "Estou com dor." | D2 |
+| 2 | 1B | laranja | estrela | Saúde | "Preciso ir ao banheiro." | D3 |
+| 3 | 1C | branco | triângulo | Saúde | "Preciso de água." | D4 |
+| 4 | 1D | verde | quadrado | Emoções | "Estou feliz." | D5 |
+| 5 | 1E | azul | cruz | Emoções | "Estou triste." | D6 |
+| 6 | 2A | vermelho | losango | Emoções | "Estou com medo." | D7 |
+| 7 | 2B | laranja | losango | Escola | "Preciso de ajuda." | D8 |
+| 8 | 2C | branco | losango | Escola | "Não entendi." | D9 |
+| 9 | 2D | verde | losango | Social | "Olá." | A0 |
+| 10 | 2E | azul | losango | Social | "Obrigado(a)." | A1 |
+
+Os blocos temáticos agora são uma propriedade de cada botão, escolhida no app; a cor do botão é física e fixa por coluna. A numeração e a ordem dos pinos não mudaram em relação à versão anterior. **Confirmar na fiação** que cada pino está ligado ao botão da posição indicada.
 
 ## Ligações (sketch principal)
 
@@ -53,8 +61,14 @@ Manter as posições vazias em 3B e 4B permite aproveitar o arquivo de corte a l
 | DFPlayer TX → Arduino | D10 (SoftwareSerial) | RX1 (19) |
 | Arduino → DFPlayer RX | D11 com resistor de 1 kΩ em série | TX1 (18) com 1 kΩ |
 | LED de confirmação | D13 + resistor de 220 Ω (também acende o LED da placa) | igual |
+| Módulo Bluetooth TXD → Arduino | — (sem Bluetooth) | RX2 (17) |
+| Arduino → módulo Bluetooth RXD | — | TX2 (16) por divisor de tensão: 1 kΩ em série e 2 kΩ para o GND (o RXD do módulo é 3,3 V) |
+| Módulo Bluetooth VCC / GND | — | 5 V e GND (HM-10, AT-09 e HC-05 em placa com regulador) |
+| Cabo USB | conexão com o app | conexão com o app |
 
-O firmware escolhe a serial na compilação: `Serial1` quando a placa a possui, `SoftwareSerial` caso contrário. O mesmo sketch compila para UNO (5,0 KB de flash) e Mega.
+O firmware escolhe as seriais na compilação: `Serial1` para o DFPlayer quando a placa a possui (`SoftwareSerial` caso contrário) e `Serial2` para o módulo Bluetooth quando ela existe. O mesmo sketch compila para UNO (6,2 KB de flash, conexão com o app só pelo cabo USB) e Mega (6,5 KB, cabo USB e Bluetooth).
+
+O módulo Bluetooth pode ser **BLE** (HM-10, AT-09, HC-08, JDY-08) ou **clássico** (HC-05, HC-06): a ligação é a mesma. O BLE funciona no computador e no Android; o HC-05 funciona com certeza no computador, pareado como porta serial, e no Android depende da versão do Chrome. Preparo do módulo e comandos em [software/README.md](../../software/README.md#conexão-com-a-placa).
 
 ## Estado atual do firmware
 
@@ -63,7 +77,8 @@ O firmware escolhe a serial na compilação: `Serial1` quando a placa a possui, 
   - toca só ao pressionar, não ao soltar;
   - LED de 2 s sem `delay()`;
   - `isACK=false` para módulos DFPlayer clone;
-  - LED piscando rápido quando o DFPlayer não inicia.
+  - LED piscando rápido quando o DFPlayer não inicia;
+  - comandos do app pelo cabo USB (UNO e Mega) e, no Mega, pelo módulo Bluetooth na `Serial2`: recebe volume e frases (guardados na EEPROM), toca botões a pedido do app e avisa cada botão apertado.
 - `examples/PrimeiroTesteFuncional` e `examples/SegundoTesteCompleto` ficam como registro dos protótipos anteriores: 2 botões, e 12 botões nos pinos 22–33 do Mega.
 - **Atenção:** um protótipo montado com o exemplo de 12 botões no Mega (pinos 22–33) precisa ser religado conforme a tabela acima.
 
@@ -71,12 +86,14 @@ O firmware escolhe a serial na compilação: `Serial1` quando a placa a possui, 
 
 O app em [software/](../../software/README.md) é um PWA que roda no navegador e no celular. Nele, a professora:
 
-- vê a placa como um mapa de assentos;
+- vê a placa como no protótipo físico, organizada como um mapa de assentos (fileiras 1–2, colunas A–E);
 - define a frase e o pictograma de cada botão;
 - grava a voz pelo microfone ou envia um arquivo;
-- exporta para o cartão SD (gravação direta ou `.zip`) ou envia por Bluetooth.
+- exporta para o cartão SD (gravação direta ou `.zip`) ou se conecta à placa.
 
-O envio por Bluetooth, **sem cartão de memória**, não é possível com Arduino + DFPlayer: o DFPlayer só lê do cartão, e o UNO não tem memória para os áudios. Ele pressupõe uma revisão da placa com ESP32 (BLE + 4 MB de flash + amplificador I2S). O protocolo está definido em `software/README.md`; o firmware ESP32 ainda não existe. Até lá, o app oferece uma placa de demonstração.
+A conexão tem um único botão, **Procurar FalaPlaca**, que serve para módulo BLE, HC-05 ou cabo USB e reconecta sozinho às placas já usadas. Com a placa conectada, o app envia frases e volume, testa os botões e acompanha em tempo real os botões apertados; as vozes continuam indo pelo cartão SD. Isso também ajuda nos testes de validação, porque o app vê cada acionamento.
+
+O envio dos **áudios** por Bluetooth, **sem cartão de memória**, não é possível com Arduino + DFPlayer: o DFPlayer só lê do cartão, e o Arduino não tem memória para os áudios. Ele pressupõe uma revisão da placa com ESP32 (BLE + 4 MB de flash + amplificador I2S). O protocolo está definido em `software/README.md`; o firmware ESP32 ainda não existe. Até lá, o app oferece uma placa de demonstração.
 
 ## Organização do cartão MicroSD
 

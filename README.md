@@ -6,9 +6,9 @@ Projeto desenvolvido no IFPE (campi Palmares e Ipojuca) e apresentado no artigo 
 
 ## Hardware
 
-- Arduino UNO (ou Mega)
+- Arduino UNO ou Mega. O app se conecta pelo cabo USB e, no Mega, também por um módulo Bluetooth opcional: BLE (HM-10, AT-09, HC-08) ou HC-05.
 - Módulo DFPlayer Mini + cartão MicroSD
-- 10 botões de 25 mm na grade 3×4 (posições 3B e 4B vazias)
+- 10 botões arcade em 2 fileiras de 5, uma cor por coluna (vermelho, laranja, branco, verde, azul)
 - Alto-falante 0,5 W e LED indicador
 - Bateria 9 V ou USB
 - Estrutura em MDF 3 mm cortado a laser
